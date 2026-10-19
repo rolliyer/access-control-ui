@@ -155,10 +155,12 @@ const { run: refresh, pending: refreshing } = useAsyncAction(() => catalog.fetch
           second gate — see the access-control guide, section 5.4).
         </li>
         <li>
-          <template v-if="appConfig.apiMode === 'mock'">
-            Run <code>npm run sync:domains</code> in this UI and reload.
+          In this repo, run <code>npm run sync:domains</code> (in <code>frontend/</code>).
+          <template v-if="appConfig.apiMode === 'mock'">Then reload this page.</template>
+          <template v-else>
+            Then restart the backend, or rebuild and redeploy the app — the domain list is built
+            into it — and click <strong>Refresh</strong> above.
           </template>
-          <template v-else>Click <strong>Refresh</strong> above.</template>
           The domain appears in the list and in every role's permission picker.
         </li>
         <li>

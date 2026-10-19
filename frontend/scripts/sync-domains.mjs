@@ -16,7 +16,10 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const repo = resolve(process.env.MCP_REPO_PATH ?? join(root, '..', 'bapps-edp-analytics-mcp'))
+// Default: the MCP repo sits next to this repo (root is frontend/, so go up two levels).
+const repo = resolve(
+  process.env.MCP_REPO_PATH ?? join(root, '..', '..', 'bapps-edp-analytics-mcp'),
+)
 const agentConfig = process.env.MCP_AGENT_CONFIG ?? 'agents/roller_analyst.yaml'
 const metricsRoot = join(repo, 'semantic', 'metrics')
 const output = join(root, 'src', 'api', 'mock', 'domains.generated.json')

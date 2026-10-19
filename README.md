@@ -3,11 +3,15 @@
 A web app for managing **who can see which data** in the Roller analytics agent, without writing
 SQL. You can add people, create roles, choose what each role can see, and give or remove roles.
 
-It manages the `roller_analytics_agent_access_control` tables described in
+It manages the `roller_analytics_agent_access_control` BigQuery tables described in
 `bapps-edp-analytics-mcp/semantic/access_control/README.md`.
 
-> **Right now the app runs on sample data.** Until a backend API is built, every change you make
-> is saved only in your own browser. It never touches BigQuery. See [Where the data comes from](#where-the-data-comes-from).
+The repo has two parts, which run together in **one container**:
+
+| Folder | What it is | Built with |
+|---|---|---|
+| `frontend/` | The web pages you click around in | Vue 3, TypeScript, Vite |
+| `backend/` | The API that checks the rules and reads and writes BigQuery | Python, FastAPI |
 
 ---
 
@@ -18,10 +22,11 @@ It manages the `roller_analytics_agent_access_control` tables described in
 3. [Run it with Docker](#run-it-with-docker)
 4. [Deploy to Google Cloud Run](#deploy-to-google-cloud-run)
 5. [Settings](#settings)
-6. [Where the data comes from](#where-the-data-comes-from)
-7. [Adding a new data domain](#adding-a-new-data-domain)
-8. [Troubleshooting](#troubleshooting)
-9. [For developers](#for-developers)
+6. [How sign-in and security work](#how-sign-in-and-security-work)
+7. [Where the data comes from](#where-the-data-comes-from)
+8. [Adding a new data domain](#adding-a-new-data-domain)
+9. [Troubleshooting](#troubleshooting)
+10. [For developers](#for-developers)
 
 ---
 
@@ -37,7 +42,8 @@ It manages the `roller_analytics_agent_access_control` tables described in
 - **Domains**: the groups of metrics available, which roles give access to each, and how to add
   a new one.
 
-The app follows the same rules as the access-control guide:
+The app follows the rules in the access-control guide. The backend enforces them; the web pages
+check them too, so you get instant feedback.
 
 - Emails must be lowercase `@rollerdigital.com` addresses.
 - Role keys are lowercase words joined with `_`, for example `support_analyst`.
@@ -50,30 +56,37 @@ The app follows the same rules as the access-control guide:
 
 ## Run it on your computer
 
-Use this to try the app or work on the code.
+There are two ways to run it locally:
+
+- **A. Web pages only**: quickest. Uses sample data kept in your browser. Needs only Node.js.
+- **B. Web pages + backend**: the full app. The web pages talk to the real API, which uses sample
+  data in its memory. Needs Node.js and Python (`uv`).
+
+Neither one touches BigQuery.
 
 ### What you need first
 
-| Tool | Why | How to get it |
+| Tool | Needed for | How to get it |
 |---|---|---|
-| **Git** | To download the code | Already on most Macs. Check with `git --version`. |
-| **nvm** (Node Version Manager) | Installs the right version of Node.js | Follow https://github.com/nvm-sh/nvm#installing-and-updating, then open a new terminal. |
-| **Node.js 24** | Runs the app | Installed by nvm in step 2 below. |
+| **Git** | Downloading the code | Already on most Macs. Check with `git --version`. |
+| **nvm** (Node Version Manager) | A and B | Follow https://github.com/nvm-sh/nvm#installing-and-updating, then open a new terminal. |
+| **uv** (Python package manager) | B only | Follow https://docs.astral.sh/uv/getting-started/installation/, then open a new terminal. uv installs the right Python for you. |
 
-### Steps
-
-**1. Download the code** and go into the folder:
+**Download the code** (once):
 
 ```bash
 git clone https://github.com/rolliyer/access-control-ui.git
 ```
 
+### A. Web pages only
+
+**1. Go into the frontend folder:**
+
 ```bash
-cd access-control-ui
+cd access-control-ui/frontend
 ```
 
-**2. Install the right Node.js version.** The project says which version it needs in `.nvmrc`,
-and nvm reads it from there:
+**2. Install the right Node.js version.** The folder's `.nvmrc` says which version is needed:
 
 ```bash
 nvm install
@@ -83,63 +96,121 @@ nvm install
 nvm use
 ```
 
-You should see `Now using node v24...`. Run `nvm use` every time you open a new terminal for this
-project.
+You should see `Now using node v24...`. Run `nvm use` every time you open a new terminal here.
 
-**3. Install the app's libraries.** This takes a minute the first time:
+**3. Install the libraries.** This takes a minute the first time:
 
 ```bash
 npm install
 ```
 
-**4. Start the app:**
+**4. Start it:**
 
 ```bash
 npm run dev
 ```
 
-You should see a line like `Local: http://localhost:5173/`.
+You should see `Local: http://localhost:5173/`.
 
-**5. Open http://localhost:5173 in your browser.** You'll see the dashboard with sample people
-and roles. Changes you make show up straight away.
+**5. Open http://localhost:5173.** You'll see the dashboard with sample people and roles. The
+bottom of the left sidebar says **Mock data**.
 
-**6. To stop the app**, go back to the terminal and press `Ctrl + C`.
+**6. To stop it**, press `Ctrl + C` in the terminal.
 
-### Other useful commands
+### B. Web pages + backend
 
-Run these from the project folder after `nvm use`:
+You'll use **two terminals**: one for the backend and one for the web pages.
+
+**Terminal 1: start the backend**
+
+```bash
+cd access-control-ui/backend
+```
+
+Install the backend's libraries (and Python, if needed):
+
+```bash
+uv sync
+```
+
+Start it in development sign-in mode:
+
+```bash
+AUTH_MODE=dev uv run uvicorn app.main:create_app --factory --reload --port 8000
+```
+
+You should see `Uvicorn running on http://127.0.0.1:8000`. To check it, open
+http://localhost:8000/healthz; it should say `ok`.
+
+`AUTH_MODE=dev` treats you as the signed-in admin `dev.admin@rollerdigital.com`. Never use it on a
+server; the app refuses to start that way on Cloud Run.
+
+**Terminal 2: start the web pages, connected to the backend**
+
+```bash
+cd access-control-ui/frontend
+```
+
+```bash
+nvm use
+```
+
+```bash
+npm install
+```
+
+```bash
+npm run dev:api
+```
+
+Open **http://localhost:5173**. The bottom of the left sidebar now says **Live API**: every change
+goes to the backend. The backend keeps data in memory, so it resets when you stop it.
+
+**To stop**, press `Ctrl + C` in each terminal.
+
+### Useful commands
+
+Web pages (in `frontend/`, after `nvm use`):
 
 | Command | What it does |
 |---|---|
-| `npm run test:unit -- --run` | Runs all the automated tests once. Leave off `-- --run` to re-run them as you edit. |
+| `npm run dev` | Starts the web pages with sample data in the browser. |
+| `npm run dev:api` | Starts the web pages connected to the backend on port 8000. |
+| `npm run test:unit -- --run` | Runs the frontend tests once. |
 | `npm run lint` | Checks the code for mistakes and style problems, and fixes what it can. |
-| `npm run build` | Checks types and builds the production files into `dist/`. |
-| `npm run preview` | Serves the `dist/` build at http://localhost:4173, so you can check it. |
-| `npm run format` | Tidies code formatting. |
+| `npm run build` | Checks types and builds the production files into `frontend/dist/`. |
 | `npm run sync:domains` | Refreshes the list of data domains from the analytics MCP repo. See [Adding a new data domain](#adding-a-new-data-domain). |
+
+Backend (in `backend/`):
+
+| Command | What it does |
+|---|---|
+| `uv run pytest` | Runs the backend tests. |
+| `uv run ruff check .` | Checks the code for mistakes and style problems. |
+| `uv run ruff format .` | Tidies code formatting. |
 
 ---
 
 ## Run it with Docker
 
-This runs the app exactly as it will run in the cloud. You don't need Node.js for this, only Docker.
+This builds the same single container that runs in the cloud: the backend serves both the API and
+the web pages. You don't need Node.js or Python for this, only Docker.
 
 ### What you need first
 
 - **Docker Desktop**: download it from https://www.docker.com/products/docker-desktop/, install it,
   and **open it**. Wait until it says Docker is running.
-- The code, downloaded as in step 1 of [Run it on your computer](#run-it-on-your-computer).
+- The code, downloaded as in [Run it on your computer](#run-it-on-your-computer).
 
 ### Steps
 
-**1. Go into the project folder:**
+**1. Go to the top folder of the project** (not `frontend/` or `backend/`):
 
 ```bash
 cd access-control-ui
 ```
 
-**2. Build the image.** This packages the app into a container image called
-`access-control-ui:local`, and takes a few minutes the first time:
+**2. Build the image.** This takes a few minutes the first time:
 
 ```bash
 docker build --platform linux/amd64 -t access-control-ui:local .
@@ -150,16 +221,21 @@ It's finished when you see `naming to docker.io/library/access-control-ui:local`
 **3. Start the container:**
 
 ```bash
-docker run --rm --name access-control-ui --platform linux/amd64 -p 8088:8088 access-control-ui:local
+docker run --rm --name access-control-ui --platform linux/amd64 -p 8088:8088 -e AUTH_MODE=dev access-control-ui:local
 ```
 
-`-p 8088:8088` connects port **8088 on your computer** (first number) to port 8088 inside the
-container (second number). If 8088 is already in use on your computer, change only the first number,
-e.g. `-p 8089:8088`, and use that number in the addresses below.
+- `-p 8088:8088` connects port **8088 on your computer** (first number) to the container (second
+  number). If 8088 is busy on your computer, change only the first number, e.g. `-p 8089:8088`, and
+  use that number below.
+- `-e AUTH_MODE=dev` signs you in as a development admin. Without it the container won't start,
+  because it expects Google sign-in (IAP), which only exists on Cloud Run.
 
-**4. Open http://localhost:8088 in your browser.** You should see the same app as before.
+You should see `Uvicorn running on http://0.0.0.0:8088`.
 
-**5. Check it's healthy (optional).** In a second terminal, run:
+**4. Open http://localhost:8088.** You'll see the app with **Live API** at the bottom of the sidebar,
+using sample data held in the container's memory.
+
+**5. Check it's healthy (optional).** In a second terminal:
 
 ```bash
 curl -s http://localhost:8088/healthz
@@ -167,21 +243,11 @@ curl -s http://localhost:8088/healthz
 
 It should print `ok`.
 
-**6. To stop it**, press `Ctrl + C` in the terminal where it's running, or run:
+**6. To stop it**, press `Ctrl + C`, or run:
 
 ```bash
 docker stop access-control-ui
 ```
-
-**Try a different setting (optional).** Settings are read when the container starts, so you can
-change them without rebuilding. For example:
-
-```bash
-docker run --rm --name access-control-ui --platform linux/amd64 -p 8088:8088 -e APP_ACTOR_EMAIL=you@rollerdigital.com access-control-ui:local
-```
-
-Then `curl -s http://localhost:8088/config.js` shows the settings the app is using. All the
-settings are listed under [Settings](#settings).
 
 ---
 
@@ -189,48 +255,76 @@ settings are listed under [Settings](#settings).
 
 The app runs as a Cloud Run **service** with exactly **one container that is always on**. It never
 scales to zero and never adds more containers. (It's a service, not a Cloud Run *job*: jobs run once
-and stop, so they can't serve a website.)
+and stop, so they can't serve a website.) In the cloud it reads and writes the real BigQuery
+tables, and people sign in with Google through Identity-Aware Proxy (IAP).
 
-These settings live in `deploy/cloudrun/service.yaml`.
+> These Google Cloud commands haven't been run against a real project yet. Check them the first
+> time, and fix this README if anything differs.
 
 ### What you need first
 
 - Docker Desktop, running, as in [Run it with Docker](#run-it-with-docker).
-- The **Google Cloud CLI** (`gcloud`): install it from https://cloud.google.com/sdk/docs/install.
-- A Google Cloud project you're allowed to deploy to.
+- The **Google Cloud CLI** (`gcloud`, which includes `bq`): install it from
+  https://cloud.google.com/sdk/docs/install.
+- Permission to deploy to the Google Cloud project and to grant access on the BigQuery dataset.
 
 In the commands below, replace:
 
 | Placeholder | What to put | Example |
 |---|---|---|
-| `<PROJECT>` | Your Google Cloud project ID | `my-project-id` |
-| `<REGION>` | The region to run in | `us-central1` |
-| `<REPOSITORY>` | An Artifact Registry repository for container images | `access-control` |
+| `<PROJECT>` | The Google Cloud project that runs the app | `my-project-id` |
+| `<PROJECT_NUMBER>` | That project's number (`gcloud projects describe <PROJECT> --format='value(projectNumber)'`) | `123456789012` |
+| `<REGION>` | Where to run it | `us-central1` |
+| `<REPOSITORY>` | An Artifact Registry repository for images | `access-control` |
+| `<BQ_PROJECT>` | The project holding the access-control dataset | `ent-data-warehouse-dev` |
 
 ### One-time setup
 
-**1. Log in to Google Cloud:**
+**1. Log in:**
 
 ```bash
 gcloud auth login
 ```
 
-**2. Create a repository for the container images.** Skip this if it already exists:
+**2. Turn on the services the app uses:**
+
+```bash
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com iap.googleapis.com --project=<PROJECT>
+```
+
+**3. Create a repository for the images:**
 
 ```bash
 gcloud artifacts repositories create <REPOSITORY> --repository-format=docker --location=<REGION> --project=<PROJECT>
 ```
 
-**3. Let Docker push to that repository:**
+**4. Let Docker upload to it:**
 
 ```bash
 gcloud auth configure-docker <REGION>-docker.pkg.dev
 ```
 
+**5. Create the app's own service account.** This is the identity the app runs as. Keep it
+separate from the analytics agent's identity, so the agent itself can never grant access.
+
+```bash
+gcloud iam service-accounts create access-control-ui --display-name="Access control UI" --project=<PROJECT>
+```
+
+**6. Let it edit only the access-control tables, and run queries:**
+
+```bash
+bq query --use_legacy_sql=false --project_id=<BQ_PROJECT> 'GRANT `roles/bigquery.dataEditor` ON SCHEMA `<BQ_PROJECT>.roller_analytics_agent_access_control` TO "serviceAccount:access-control-ui@<PROJECT>.iam.gserviceaccount.com"'
+```
+
+```bash
+gcloud projects add-iam-policy-binding <BQ_PROJECT> --member=serviceAccount:access-control-ui@<PROJECT>.iam.gserviceaccount.com --role=roles/bigquery.jobUser
+```
+
 ### Each time you deploy
 
-**1. Build the image and upload it** to the repository. The image is tagged with the current
-commit, so every deploy is traceable:
+**1. Build the image and upload it.** It's tagged with the current commit, so every deploy can be
+traced back to the code:
 
 ```bash
 IMAGE=<REGION>-docker.pkg.dev/<PROJECT>/<REPOSITORY>/access-control-ui:$(git rev-parse --short HEAD)
@@ -244,61 +338,98 @@ docker build --platform linux/amd64 -t "$IMAGE" .
 docker push "$IMAGE"
 ```
 
-**2. Deploy it.** This creates the service the first time and updates it after that:
-
-```bash
-gcloud run deploy access-control-ui --image="$IMAGE" --region=<REGION> --project=<PROJECT> --min-instances=1 --max-instances=1 --port=8080 --no-allow-unauthenticated --set-env-vars=APP_API_MODE=mock
-```
-
-When it finishes, it prints the service URL.
-
-*Alternative:* put the `$IMAGE` value into the `image:` line of `deploy/cloudrun/service.yaml`,
-then run:
+**2. Deploy it.** Put the `$IMAGE` value into the `image:` line of `deploy/cloudrun/service.yaml`,
+and fill in its other placeholders. Then run:
 
 ```bash
 gcloud run services replace deploy/cloudrun/service.yaml --region=<REGION> --project=<PROJECT>
 ```
 
-### Who can open it
+This creates the service the first time and updates it after that. It prints the service URL.
 
-The service is **private**: only people or accounts given the `roles/run.invoker` role can reach
-it. This is an admin tool that controls access to company data, so **don't** open it to everyone
-(`allUsers`). For how to make it available to colleagues, ask in the `ai-support` Slack channel.
+### Let people in (after the first deploy)
+
+**1. Allow IAP to call the service:**
+
+```bash
+gcloud run services add-iam-policy-binding access-control-ui --region=<REGION> --project=<PROJECT> --member=serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-iap.iam.gserviceaccount.com --role=roles/run.invoker
+```
+
+**2. Allow each admin to sign in.** Repeat for every person:
+
+```bash
+gcloud iap web add-iam-policy-binding --member=user:jane.doe@rollerdigital.com --role=roles/iap.httpsResourceAccessor --region=<REGION> --resource-type=cloud-run --service=access-control-ui --project=<PROJECT>
+```
+
+To limit admin powers further, set `ADMIN_EMAILS` in `service.yaml` (see [Settings](#settings)).
+
+The service stays **private**. This is an admin tool that controls access to company data, so
+**never** open it to everyone (`allUsers`). For help making it available more widely, ask in the
+`ai-support` Slack channel.
 
 ---
 
 ## Settings
 
-The Docker image reads these when the container starts, so one image works everywhere. Set them with
-`-e NAME=value` in `docker run`, or `--set-env-vars` in Cloud Run.
+### Backend / container
+
+Set these with `-e NAME=value` in `docker run`, `env:` in `deploy/cloudrun/service.yaml`, or in
+front of the `uv run` command locally.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `APP_API_MODE` | `mock` | `mock` keeps sample data in each person's browser. `http` uses the real backend API. |
-| `APP_API_BASE_URL` | `/api` | Where the backend API is, when `APP_API_MODE=http`. |
-| `APP_ACTOR_EMAIL` | `admin@rollerdigital.com` | The email recorded as "created by" in mock mode. |
-| `CSP_CONNECT_SRC` | `'self'` | Which web addresses the page may call. Add the backend's address if it's on a different domain, e.g. `'self' https://api.example.com`. |
-| `PORT` | `8088` | The port the container listens on. Cloud Run always sets it to `8080` for you, so leave it alone there. |
+| `STORE` | `memory` | `memory` uses sample data that resets on restart. `bigquery` uses the real tables. |
+| `BQ_PROJECT` | – | Project holding the dataset. Required when `STORE=bigquery`. |
+| `BQ_DATASET` | `roller_analytics_agent_access_control` | The access-control dataset. |
+| `AUTH_MODE` | `iap` | `iap` checks Google sign-in. `dev` treats everyone as `DEV_USER_EMAIL`; for local use only, and refused on Cloud Run. |
+| `IAP_AUDIENCE` | – | Required when `AUTH_MODE=iap`: `/projects/<PROJECT_NUMBER>/locations/<REGION>/services/access-control-ui`. |
+| `DEV_USER_EMAIL` | `dev.admin@rollerdigital.com` | Who you are when `AUTH_MODE=dev`. |
+| `ADMIN_EMAILS` | *(empty)* | Comma-separated admins. Empty means everyone IAP lets in is an admin. |
+| `DOMAINS_FILE` | the synced domain list | The metric domains file (see [Adding a new data domain](#adding-a-new-data-domain)). |
+| `STATIC_DIR` | *(none locally; `/app/static` in Docker)* | The built web pages to serve. |
+| `CSP_CONNECT_SRC` | `'self'` | Which addresses the web page may call. Leave as is. |
+| `PORT` | `8088` in Docker | Port to listen on. Cloud Run sets `8080` itself. |
 
-When you run with `npm run dev` instead, the same settings come from `.env.development` as
-`VITE_API_MODE`, `VITE_API_BASE_URL` and `VITE_ACTOR_EMAIL` (see `.env.example`).
+If a required setting is missing or unsafe, the app **refuses to start** and says what to fix.
+
+### Web pages in development
+
+`npm run dev` reads `frontend/.env.development` (sample data in the browser). `npm run dev:api`
+reads `frontend/.env.api` (use the backend). In the container these don't apply: the backend tells
+the web pages its settings through `/config.js`.
+
+---
+
+## How sign-in and security work
+
+- **Sign-in is IAP (Google).** Every request carries a token signed by Google. The backend checks
+  the signature and audience, and only then trusts the email inside. A plain email header is never
+  trusted, because anyone could fake one.
+- **Admins:** anyone IAP lets in, or only the people in `ADMIN_EMAILS` if you set it.
+- **Least privilege:** the app runs as its own service account. That account can edit only the
+  access-control dataset and run queries, nothing else. The analytics agent keeps read-only access
+  through `effective_access`, under a different identity.
+- **Safe SQL:** every value goes to BigQuery as a query parameter, never pasted into SQL.
+- **Audit trail:** `created_by`, `updated_by` and `revoked_by` come from the signed-in person, never
+  from what the browser sends. Grants are never deleted.
+- **Safe defaults:** without proper settings the app won't start (e.g. no IAP audience, or dev
+  sign-in on Cloud Run).
+- **Browser protections:** security headers, including a Content-Security-Policy, are set on every
+  response.
 
 ---
 
 ## Where the data comes from
 
-The app gets all its data through one interface, `AccessControlApi`
-(`src/api/access-control-api.ts`), which has two versions:
-
-| Mode | What happens |
+| How you run it | Where data lives |
 |---|---|
-| `mock` (default) | Everything runs in your browser. It starts with sample data matching `dev_seed.sql`, saves your changes in the browser's local storage, and applies the same rules as the real backend would. Nothing reaches BigQuery. |
-| `http` | The app calls a REST backend. That backend doesn't exist yet. The endpoints it must provide are listed at the top of `src/api/adapters/http-adapter.ts`. |
+| `npm run dev` (web pages only) | In your browser. Sample data matching `dev_seed.sql`, saved in local storage. |
+| Backend with `STORE=memory` (local, or Docker) | In the backend's memory. Same sample data, reset when it restarts. |
+| Backend with `STORE=bigquery` (Cloud Run) | The real BigQuery tables. |
 
-The browser never connects to BigQuery directly. The backend will hold the BigQuery credentials and
-record who made each change from their login.
+The browser never connects to BigQuery directly. Only the backend does.
 
-**To reset the sample data** in your browser:
+**To reset the browser's sample data** (web-pages-only mode):
 1. Open the app.
 2. Open the browser's developer tools (`Cmd + Option + I` on a Mac).
 3. Go to **Application → Local Storage**.
@@ -318,18 +449,24 @@ matches a metrics folder exactly, so a domain can't be typed in by hand.
 - add the folder to `metrics_dirs` in `agents/roller_analyst.yaml`
 - add the domain name to `valid_resources` in `semantic/access_control/validate.sql`
 
-**2. Make this app see it:**
-- *Mock mode:* both repos must sit side by side in the same parent folder. In this project, run:
+**2. Update this app's domain list.** Both repos must sit side by side in the same parent folder.
+In `frontend/`, run:
 
-  ```bash
-  npm run sync:domains
-  ```
+```bash
+npm run sync:domains
+```
 
-  Then reload the app. If the MCP repo is somewhere else, put its path in front of the command:
-  `MCP_REPO_PATH=/path/to/bapps-edp-analytics-mcp npm run sync:domains`.
-- *Backend mode:* click **Refresh** on the **Domains** page.
+If the MCP repo is somewhere else, put its path in front:
+`MCP_REPO_PATH=/path/to/bapps-edp-analytics-mcp npm run sync:domains`.
+This updates `frontend/src/api/mock/domains.generated.json`. **Commit that file.**
 
-**3. Give access:** on **Roles & permissions**, edit a role, tick the new domain, and save. Then give
+**3. Make the app pick it up:**
+- Web pages only: reload the page.
+- Local backend: restart it.
+- Cloud Run: rebuild and redeploy, as in [Each time you deploy](#each-time-you-deploy). The list is
+  built into the image.
+
+**4. Give access:** on **Roles & permissions**, edit a role, tick the new domain, and save. Then give
 that role to people.
 
 The **Domains** page in the app shows these steps too.
@@ -340,84 +477,94 @@ The **Domains** page in the app shows these steps too.
 
 | Problem | Fix |
 |---|---|
-| `nvm: command not found` | Install nvm (see [What you need first](#what-you-need-first)), then open a new terminal. |
-| `npm install` fails, or warns about an unsupported engine | You're on the wrong Node.js version. Run `nvm install` and then `nvm use` in the project folder. |
-| `Port 5173 is in use, trying another one` | Port 5173 is taken, usually because the app is already running in another terminal. Open the address it prints instead (e.g. http://localhost:5174), or stop the other one with `Ctrl + C`. |
+| `nvm: command not found` or `uv: command not found` | Install it (see [What you need first](#what-you-need-first)), then open a new terminal. |
+| `npm install` fails, or warns about an unsupported engine | Wrong Node.js version. In `frontend/`, run `nvm install` and then `nvm use`. |
+| `Port 5173 is in use, trying another one` | The web pages are already running in another terminal. Open the address it prints instead, or stop the other one with `Ctrl + C`. |
+| `address already in use` when starting the backend | Port 8000 is taken. Stop whatever is using it, or use `--port 8001`. Then start the web pages with `API_PROXY_TARGET=http://localhost:8001 npm run dev:api`. |
+| The page shows errors like *Sign in through IAP to use this API* locally | Start the backend with `AUTH_MODE=dev` (see step B). |
+| `ConfigError: AUTH_MODE=iap needs IAP_AUDIENCE` from `docker run` | Add `-e AUTH_MODE=dev` for local runs. On Cloud Run, set `IAP_AUDIENCE`. |
+| *… is not an access-control admin* (403) | Your email isn't in `ADMIN_EMAILS`. Add it, or leave `ADMIN_EMAILS` empty. |
 | `Cannot connect to the Docker daemon` | Docker Desktop isn't running. Open it and wait until it says it's running. |
-| `Bind for 0.0.0.0:8088 failed: port is already allocated` | Something else on your computer is using port 8088. Change the first number, e.g. `-p 8089:8088`, then open http://localhost:8089. |
-| `The container name "/access-control-ui" is already in use` | The app is already running in another terminal. Use that one, or stop it first with `docker stop access-control-ui`. |
-| `requested image's platform (linux/amd64) does not match the detected host platform` | Only a warning (common on Apple Silicon Macs); the app still works. Adding `--platform linux/amd64` to `docker run`, as shown above, removes it. |
-| The page is blank or out of date after an update | Do a hard reload (`Cmd + Shift + R`). If sample data looks wrong, [reset it](#where-the-data-comes-from). |
+| `Bind for 0.0.0.0:8088 failed: port is already allocated` | Port 8088 is busy. Change the first number, e.g. `-p 8089:8088`, then open http://localhost:8089. |
+| `The container name "/access-control-ui" is already in use` | It's already running in another terminal. Use that one, or run `docker stop access-control-ui` first. |
+| `requested image's platform (linux/amd64) does not match the detected host platform` | Only a warning (common on Apple Silicon Macs). Adding `--platform linux/amd64` to `docker run`, as shown above, removes it. |
+| The page is blank or out of date after an update | Do a hard reload (`Cmd + Shift + R`). |
 | `npm run sync:domains` says *No metrics folder* | The MCP repo isn't next to this one. Set `MCP_REPO_PATH` as shown above. |
 
 ---
 
 ## For developers
 
-Built with Vue 3 (`<script setup>` + TypeScript), Vite, Pinia, Vue Router and Vitest. The code
-checks are `npm run lint`, `npx vue-tsc --build` and `npm run test:unit -- --run`.
+### How the pieces fit
+
+```
+Browser ──► Cloud Run (IAP sign-in) ──► one container: FastAPI
+                                          ├── /api/*      → rules (service.py) → BigQuery store
+                                          ├── /config.js  → tells the web pages to use /api
+                                          ├── /healthz    → health check
+                                          └── everything else → the built Vue app
+```
+
+- The frontend talks to data through one interface, `AccessControlApi`, with a **mock** version
+  (in the browser) and an **http** version (the backend). The backend's routes match
+  `frontend/src/api/adapters/http-adapter.ts`, and its JSON is camelCase.
+- The same rules exist in both places, in `frontend/src/domain/validation.ts` and
+  `backend/app/rules.py` + `service.py`. If you change a rule, change both.
 
 ### Project structure
 
 ```
 access-control-ui/
-├── src/
-│   ├── api/                      # Data access: the only layer that knows where data lives
-│   │   ├── access-control-api.ts     # AccessControlApi interface + ApiError
-│   │   ├── adapters/                 # http-adapter (REST), mock-adapter (in-browser)
-│   │   ├── mock/seed.ts              # Sample data mirroring dev_seed.sql
-│   │   ├── mock/domains.generated.json  # Domain list written by `npm run sync:domains`
-│   │   ├── http-client.ts
-│   │   └── index.ts                  # useApi() / setApi(): picks the adapter from config
-│   ├── domain/                   # Business rules in plain TypeScript, no Vue (easy to test)
-│   │   ├── resources.ts              # Tiers + helpers for domains
-│   │   ├── grants.ts                 # Grant status and expiry
-│   │   ├── effective-access.ts       # Same logic as the effective_access view
-│   │   └── validation.ts
-│   ├── stores/                   # Pinia stores: users, roles, grants, catalog (domains),
-│   │                             #   access (combines them), notifications
-│   ├── composables/              # useAsyncAction, useUserSearch, useUserForm, useGrantForm
-│   ├── components/
-│   │   ├── ui/                       # Building blocks (BaseButton, BaseModal, RollerLogo, …)
-│   │   ├── layout/                   # AppShell, AppSidebar, PageHeader
-│   │   ├── access/                   # ResourceChips, PermissionPicker, GrantStatusBadge, …
-│   │   ├── dashboard/                # AccessMatrix, DomainCoverage, ExpiringGrantsList
-│   │   ├── users/                    # UserTable, AddUserModal, GrantRoleModal, …
-│   │   └── roles/                    # RoleCard, RoleFormModal
-│   ├── views/                    # One page per route (loaded on demand)
-│   ├── router/                   # Routes + typed route names
-│   ├── types/                    # Types matching the BigQuery tables
-│   ├── utils/                    # Date and name formatting
-│   ├── assets/                   # Global CSS + colour tokens (Roller palette)
-│   └── config.ts                 # Settings: /config.js at runtime, else VITE_* variables
-├── public/                       # Copied as-is: favicon.svg, config.js (runtime settings)
-├── scripts/sync-domains.mjs      # Reads domains from the analytics MCP repo
-├── docker/                       # nginx config + start-up script for the Docker image
-├── deploy/cloudrun/service.yaml  # Cloud Run service: one always-on container
-└── Dockerfile
+├── frontend/                       # Vue app (has its own package.json and .nvmrc)
+│   ├── src/
+│   │   ├── api/                        # AccessControlApi + mock and http versions
+│   │   │   └── mock/domains.generated.json # Domain list (npm run sync:domains); also used by the backend
+│   │   ├── domain/                     # Rules in plain TypeScript (validation, grants, effective access)
+│   │   ├── stores/                     # Pinia: users, roles, grants, catalog, access, notifications
+│   │   ├── composables/                # Reusable form and search logic
+│   │   ├── components/                 # ui/, layout/, access/, dashboard/, users/, roles/
+│   │   ├── views/                      # One page per route
+│   │   ├── assets/styles/tokens.css    # Roller colour palette (see "Colours")
+│   │   └── config.ts                   # Settings: /config.js at runtime, else VITE_* variables
+│   ├── public/                         # favicon.svg, config.js
+│   ├── scripts/sync-domains.mjs        # Reads domains from the analytics MCP repo
+│   ├── .env.development / .env.api     # Dev settings: mock mode / backend mode
+│   └── vite.config.ts                  # Proxies /api to the backend in dev:api mode
+├── backend/                        # FastAPI app (has its own pyproject.toml and uv.lock)
+│   ├── app/
+│   │   ├── main.py                     # App factory: routes, errors, security headers, serving the UI
+│   │   ├── api.py                      # /api routes
+│   │   ├── service.py                  # The rules: who can be granted what
+│   │   ├── rules.py                    # Validation helpers (match frontend/src/domain/validation.ts)
+│   │   ├── auth.py                     # IAP token check; admin check
+│   │   ├── config.py                   # Settings from environment variables, with safety checks
+│   │   ├── models.py                   # Request/response shapes (camelCase JSON)
+│   │   ├── domains.py                  # Loads the domain list
+│   │   └── store/                      # memory.py (sample data) and bigquery.py (real tables)
+│   └── tests/                          # pytest
+├── deploy/cloudrun/service.yaml    # Cloud Run: one always-on container, IAP, service account
+└── Dockerfile                      # Builds the frontend, then runs FastAPI serving UI + API
 ```
 
-Dependencies only flow one way: `views → components → stores/composables → api/domain → types`.
-Components never call the API directly; they go through the stores.
+In the frontend, dependencies only flow one way:
+`views → components → stores/composables → api/domain → types`. Components never call the API
+directly; they go through the stores.
 
 ### How the Docker image works
 
-- **Build stage (Node):** installs dependencies, type-checks and builds the app.
-- **Run stage (nginx):** serves the built files as a non-root user (uid 101). The image is about
-  80 MB.
-  - It listens on `$PORT` (8088 locally, 8080 on Cloud Run) and sends unknown paths to `index.html`, so links like `/users/123` work.
-  - `/healthz` is the health check.
-  - Built files are cached for a year. The browser re-checks `index.html` on every visit, and
-    `config.js` is never cached.
-  - Security headers are set, including a Content-Security-Policy.
-- **At start-up:** `docker/40-runtime-config.sh` writes `/config.js` from the `APP_*` settings.
-  nginx's template step fills `PORT` and `CSP_CONNECT_SRC` into
-  `docker/nginx/default.conf.template`.
+- **Stage 1 (Node):** installs the frontend's libraries, type-checks, and builds the web pages.
+- **Stage 2 (Python):** installs the backend's locked libraries with `uv`, then copies in the
+  backend code, the built web pages (`/app/static`) and the domain list (`/app/domains.json`).
+- It runs `uvicorn` as a non-root user on `$PORT`. FastAPI handles everything:
+  - API, health check and runtime settings.
+  - Long caching for fingerprinted files in `/assets/`; the browser re-checks everything else.
+  - Links like `/users/123` get the web app.
+- Defaults are safe: `STORE=memory` and `AUTH_MODE=iap`, so it won't start without an IAP audience.
 
 ### Colours
 
 All colours follow Roller's standards from roller.software. The palette (primary navy, secondary
 red, neutral, error, success) and the named colours components use are in
-`src/assets/styles/tokens.css`. Components only use names such as `--color-text` or
-`--button-primary-bg`, never raw hex values. `src/assets/__tests__/brand-colors.spec.ts` fails the
-tests if a colour is hard-coded anywhere else.
+`frontend/src/assets/styles/tokens.css`. Components only use names such as `--color-text` or
+`--button-primary-bg`, never raw hex values. `frontend/src/assets/__tests__/brand-colors.spec.ts`
+fails the tests if a colour is hard-coded anywhere else.

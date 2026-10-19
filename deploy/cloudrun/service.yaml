@@ -1,15 +1,18 @@
-# Cloud Run service for the access-control UI: exactly one always-on container.
+# Cloud Run service: the UI and the API in exactly one always-on container.
 #
-# Deploy (replace the IMAGE, then):
+# Replace every <PLACEHOLDER>, then deploy (see README "Deploy to Google Cloud Run"):
 #   gcloud run services replace deploy/cloudrun/service.yaml --region=<REGION> --project=<PROJECT>
 #
-# Access stays private: this spec grants no invoker role. Do not add allUsers.
+# Access is private: only people allowed through IAP can reach it. Do not add allUsers.
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
   name: access-control-ui
   labels:
     app: access-control-ui
+  annotations:
+    # Sign-in with Identity-Aware Proxy, directly on Cloud Run.
+    run.googleapis.com/iap-enabled: 'true'
 spec:
   template:
     metadata:
@@ -21,6 +24,8 @@ spec:
         autoscaling.knative.dev/maxScale: '1'
         run.googleapis.com/startup-cpu-boost: 'true'
     spec:
+      # Dedicated identity: can only edit the access-control dataset (see README).
+      serviceAccountName: access-control-ui@<PROJECT>.iam.gserviceaccount.com
       containerConcurrency: 80
       timeoutSeconds: 60
       containers:
@@ -29,27 +34,29 @@ spec:
             - name: http1
               containerPort: 8080
           env:
-            # mock = data kept in each viewer's browser; http = call the REST backend.
-            - name: APP_API_MODE
-              value: mock
-            - name: APP_API_BASE_URL
-              value: /api
-            - name: APP_ACTOR_EMAIL
-              value: admin@rollerdigital.com
-            # Add the backend's origin here if it is not served from the same host,
-            # e.g. "'self' https://access-control-api-xyz.a.run.app".
-            - name: CSP_CONNECT_SRC
-              value: "'self'"
+            - name: STORE
+              value: bigquery
+            - name: BQ_PROJECT
+              value: <BQ_PROJECT>
+            - name: BQ_DATASET
+              value: roller_analytics_agent_access_control
+            - name: AUTH_MODE
+              value: iap
+            - name: IAP_AUDIENCE
+              value: /projects/<PROJECT_NUMBER>/locations/<REGION>/services/access-control-ui
+            # Comma-separated. Leave empty to allow everyone IAP lets in.
+            - name: ADMIN_EMAILS
+              value: ''
           resources:
             limits:
               cpu: '1'
-              memory: 256Mi
+              memory: 512Mi
           startupProbe:
             httpGet:
               path: /healthz
               port: 8080
             periodSeconds: 2
-            failureThreshold: 10
+            failureThreshold: 15
           livenessProbe:
             httpGet:
               path: /healthz

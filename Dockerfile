@@ -1,34 +1,52 @@
 # syntax=docker/dockerfile:1
+#
+# One image, one process: FastAPI serves the API under /api and the built Vue
+# app everywhere else. Build from the repo root:
+#   docker build --platform linux/amd64 -t access-control-ui:local .
 
-# ── Build: type-check, test-free production bundle ──────────────────────────
-FROM node:24.22.0-alpine AS build
-WORKDIR /app
+# ── 1. Build the UI ─────────────────────────────────────────────────────────
+FROM node:24.22.0-alpine AS frontend
+WORKDIR /frontend
 
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-COPY . .
-# Type-checks, then bundles. VITE_* values are not baked in: settings are
-# supplied at runtime through /config.js (see docker/40-runtime-config.sh).
+COPY frontend/ ./
+# Type-checks, then bundles into /frontend/dist.
 RUN npm run build
 
-# ── Runtime: static files on unprivileged nginx (runs as uid 101) ───────────
-FROM nginxinc/nginx-unprivileged:1.28-alpine
+# ── 2. Run the API (and serve the UI) ───────────────────────────────────────
+FROM python:3.12.11-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:0.7.17 /uv /bin/uv
 
-# nginx listens on $PORT. 8088 is the local default (avoids clashing with tools on 8080);
-# Cloud Run always sets PORT=8080 itself, which overrides this.
-ENV PORT=8088 \
-    APP_API_MODE=mock \
-    APP_API_BASE_URL=/api \
-    APP_ACTOR_EMAIL=admin@rollerdigital.com \
-    CSP_CONNECT_SRC="'self'"
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# The base image renders /etc/nginx/templates/*.template with envsubst at start-up
-# and runs every /docker-entrypoint.d/*.sh script before nginx.
-COPY docker/nginx/default.conf.template /etc/nginx/templates/default.conf.template
-COPY docker/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
-COPY --chmod=0755 docker/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
-COPY --from=build --chown=101:101 /app/dist /usr/share/nginx/html
+WORKDIR /app
 
-USER 101
+# Dependencies first, so code changes don't reinstall them.
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY backend/app ./app
+COPY --from=frontend /frontend/dist ./static
+# Metric domains, from `npm run sync:domains` (frontend/).
+COPY frontend/src/api/mock/domains.generated.json ./domains.json
+
+# Safe defaults: sample data in memory, and IAP sign-in required.
+# Cloud Run sets PORT=8080; 8088 is the local default (avoids tools on 8080).
+ENV PATH=/app/.venv/bin:$PATH \
+    PORT=8088 \
+    STATIC_DIR=/app/static \
+    DOMAINS_FILE=/app/domains.json \
+    STORE=memory \
+    AUTH_MODE=iap
+
+RUN useradd --system --uid 10001 --no-create-home app
+USER 10001
 EXPOSE 8088
+
+CMD ["sh", "-c", "exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]
