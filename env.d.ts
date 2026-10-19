@@ -9,3 +9,12 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/** Written by /config.js at container start (see docker/40-runtime-config.sh). */
+interface Window {
+  __APP_CONFIG__?: {
+    apiMode?: string
+    apiBaseUrl?: string
+    actorEmail?: string
+  }
+}

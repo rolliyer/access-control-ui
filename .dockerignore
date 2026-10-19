@@ -1,0 +1,14 @@
+# Keep the build context small and free of local state.
+node_modules
+dist
+coverage
+.git
+.claude
+.vscode
+*.local
+.env.*.local
+npm-debug.log*
+.eslintcache
+Dockerfile
+.dockerignore
+deploy
