@@ -1,0 +1,144 @@
+/*
+ * Design tokens — Roller colour standards.
+ *
+ * The palette is copied from roller.software's stylesheet (primary / secondary /
+ * neutral / error scales, plus the colours its forms and sections use).
+ * Components must use the semantic tokens below, never the raw palette.
+ */
+:root {
+  /* ── Roller palette ─────────────────────────────────────────────────── */
+
+  /* Primary — Roller navy/blue */
+  --primary-02: #f5f8ff; /* light section background */
+  --primary-05: #ebf2fe; /* light section background */
+  --primary-10: #cedffd;
+  --primary-20: #9dbffb;
+  --primary-30: #6ba0fa;
+  --primary-40: #074dc5;
+  --primary-45: #053994; /* form labels and input text ("scout navy") */
+  --primary-50: #033180; /* brand navy: text, header, footer */
+  --primary-60: #032663;
+  --primary-70: #011332;
+
+  /* Secondary — Roller red */
+  --secondary-10: #fff3f2;
+  --secondary-20: #ffd2cc;
+  --secondary-30: #ff7866;
+  --secondary-40: #ff4b33;
+  --secondary-50: #ff290c; /* CTAs, logo, required markers */
+  --secondary-60: #991200;
+  --secondary-70: #660c00;
+
+  /* Neutral */
+  --neutral-white: #ffffff;
+  --neutral-10: #f2f2f2;
+  --neutral-20: #e5e5e4;
+  --neutral-30: #cccccc;
+  --neutral-40: #b3b3b3;
+  --neutral-50: #808080;
+  --neutral-60: #4d4d4d;
+  --neutral-70: #262626;
+
+  /* Error */
+  --error-10: #fee5e5;
+  --error-50: #e50b0b;
+  --error-60: #b20404;
+
+  /* Success */
+  --green-10: #e6fff0;
+  --green-60: #00b24a;
+
+  /* ── Semantic tokens ────────────────────────────────────────────────── */
+
+  /* Text */
+  --color-text: var(--primary-50);
+  --color-text-muted: var(--neutral-60);
+  --color-text-inverse: var(--neutral-white);
+  --color-label: var(--primary-45);
+  --color-required: var(--secondary-50);
+  --color-link: var(--primary-40);
+  --color-link-hover: var(--primary-50);
+
+  /* Surfaces */
+  --color-bg: var(--primary-02);
+  --color-surface: var(--neutral-white);
+  --color-surface-subtle: var(--primary-05);
+  --color-surface-muted: var(--neutral-10);
+  --color-overlay: rgb(1 19 50 / 55%); /* primary-70 */
+
+  /* Borders */
+  --color-border: var(--primary-10);
+  --color-border-muted: var(--neutral-20);
+
+  /* Inputs (as on roller.software forms) */
+  --color-input-border: var(--primary-20);
+  --color-input-text: var(--primary-45);
+  --color-input-placeholder: var(--primary-20);
+  --color-input-focus: var(--primary-45);
+  --color-focus: rgb(7 77 197 / 30%); /* primary-40 */
+
+  /* Accent: selection, checkmarks, progress */
+  --color-accent: var(--primary-40);
+  --color-accent-strong: var(--primary-50);
+  --color-accent-hover: var(--primary-50);
+  --color-accent-subtle: var(--primary-05);
+  --color-mark-empty: var(--primary-10);
+
+  /* Status */
+  --color-success: var(--green-60);
+  --color-success-bg: var(--green-10);
+  --color-warning: var(--secondary-40);
+  --color-warning-bg: var(--secondary-10);
+  --color-danger: var(--error-60);
+  --color-danger-mark: var(--error-50);
+  --color-danger-bg: var(--error-10);
+
+  /* Sidebar (Roller navy, like the site header and footer) */
+  --color-sidebar: var(--primary-50);
+  --color-sidebar-text: var(--neutral-white);
+  --color-sidebar-hover: rgb(255 255 255 / 10%);
+  --color-sidebar-active: var(--primary-60);
+  --color-sidebar-indicator: var(--secondary-50);
+  --color-sidebar-outline: rgb(255 255 255 / 30%);
+
+  /* Buttons (roller.software CTAs) */
+  --button-primary-bg: var(--secondary-50);
+  --button-primary-bg-hover: var(--secondary-70);
+  --button-primary-text: var(--neutral-white);
+  --button-secondary-border: var(--primary-50);
+  --button-secondary-text: var(--primary-50);
+  --button-secondary-bg-hover: var(--primary-05);
+  --button-danger: var(--error-60);
+  --button-danger-bg-hover: var(--error-10);
+
+  /* Typography */
+  --font-sans: 'Proxima Nova', proxima-nova, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+
+  /* Spacing (4px scale) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+
+  /* Shape & depth (shadow colour from roller.software) */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 2px rgb(2 34 89 / 5%);
+  --shadow-md: 0 4px 6px -1px rgb(2 34 89 / 10%), 0 2px 4px -2px rgb(2 34 89 / 10%);
+  --shadow-lg: 0 25px 50px -12px rgb(2 34 89 / 25%);
+
+  --sidebar-width: 240px;
+  --transition: 150ms ease;
+}

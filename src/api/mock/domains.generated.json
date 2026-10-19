@@ -1,0 +1,32 @@
+[
+  {
+    "key": "customer_success",
+    "label": "Customer Success",
+    "metricCount": 0,
+    "loadedByAgent": true
+  },
+  {
+    "key": "finance",
+    "label": "Finance",
+    "metricCount": 0,
+    "loadedByAgent": true
+  },
+  {
+    "key": "renewals",
+    "label": "Renewals",
+    "metricCount": 0,
+    "loadedByAgent": true
+  },
+  {
+    "key": "sales",
+    "label": "Sales",
+    "metricCount": 13,
+    "loadedByAgent": true
+  },
+  {
+    "key": "support",
+    "label": "Support",
+    "metricCount": 6,
+    "loadedByAgent": true
+  }
+]
