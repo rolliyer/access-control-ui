@@ -272,10 +272,10 @@ In the commands below, replace:
 
 | Placeholder | What to put | Example |
 |---|---|---|
-| `<PROJECT>` | The Google Cloud project that runs the app | `my-project-id` |
+| `<PROJECT>` | The Google Cloud project that runs the app (`PROJECT_ID` in the settings file) | `my-project-id` |
 | `<PROJECT_NUMBER>` | That project's number (`gcloud projects describe <PROJECT> --format='value(projectNumber)'`) | `123456789012` |
 | `<REGION>` | Where to run it | `us-central1` |
-| `<REPOSITORY>` | An Artifact Registry repository for images | `access-control` |
+| `<REPOSITORY>` | An Artifact Registry repository for images (`REPO` in the settings file) | `edp` |
 | `<BQ_PROJECT>` | The project holding the access-control dataset | `ent-data-warehouse-dev` |
 
 ### One-time setup
@@ -304,14 +304,25 @@ gcloud artifacts repositories create <REPOSITORY> --repository-format=docker --l
 gcloud auth configure-docker <REGION>-docker.pkg.dev
 ```
 
-**5. Create the app's own service account.** This is the identity the app runs as. Keep it
+**5. Fill in the deploy settings** for the environment, as described in
+[Fill in the deploy settings](#fill-in-the-deploy-settings-once-per-environment) below. The commands
+in the next steps use the same values.
+
+**6. Create the app's own service account.** This is the identity the app runs as. Keep it
 separate from the analytics agent's identity, so the agent itself can never grant access.
 
 ```bash
 gcloud iam service-accounts create access-control-ui --display-name="Access control UI" --project=<PROJECT>
 ```
 
-**6. Let it edit only the access-control tables, and run queries:**
+> **Using an existing service account instead?** `deploy/env/dev.env` currently uses
+> `sa-cloudrun-schema-loader-dev@ent-data-ingestion-dev.iam.gserviceaccount.com` for now. That
+> works, but everything else running as that account could then change who has access too. Switch
+> to a dedicated account before going to `stg` or `prod`. Whichever account you use, it needs the
+> permissions in step 7, with `SERVICE_ACCOUNT` from the settings file in place of
+> `access-control-ui@<PROJECT>.iam.gserviceaccount.com`.
+
+**7. Let it edit only the access-control tables, and run queries:**
 
 ```bash
 bq query --use_legacy_sql=false --project_id=<BQ_PROJECT> 'GRANT `roles/bigquery.dataEditor` ON SCHEMA `<BQ_PROJECT>.roller_analytics_agent_access_control` TO "serviceAccount:access-control-ui@<PROJECT>.iam.gserviceaccount.com"'
@@ -321,31 +332,54 @@ bq query --use_legacy_sql=false --project_id=<BQ_PROJECT> 'GRANT `roles/bigquery
 gcloud projects add-iam-policy-binding <BQ_PROJECT> --member=serviceAccount:access-control-ui@<PROJECT>.iam.gserviceaccount.com --role=roles/bigquery.jobUser
 ```
 
+### Fill in the deploy settings (once per environment)
+
+Each environment (`dev`, `stg`, `prod`) has a settings file: `deploy/env/dev.env`,
+`deploy/env/stg.env` and `deploy/env/prod.env`. Open the one you need and replace every
+`<FILL_ME>` with the real value (the file explains each one). Then commit it. The deploy script
+refuses to run while any `<FILL_ME>` is left.
+
 ### Each time you deploy
 
-**1. Build the image and upload it.** It's tagged with the current commit, so every deploy can be
-traced back to the code:
+Deploys use `bin/deploy.sh`, which follows the same pattern as `bapps-edp-services`
+(`make build-image ENV=dev`). Run these from the top folder of the project.
+
+**1. Commit your changes.** The image is tagged with the current commit (e.g. `1b915f5`), so you
+always know exactly which code is running. The script stops if there are uncommitted changes.
+
+**2. See what would happen (optional, changes nothing):**
 
 ```bash
-IMAGE=<REGION>-docker.pkg.dev/<PROJECT>/<REPOSITORY>/access-control-ui:$(git rev-parse --short HEAD)
+make deploy ENV=dev DRY_RUN=1
 ```
+
+This prints every command and the filled-in Cloud Run settings.
+
+**3. Build, upload and deploy:**
 
 ```bash
-docker build --platform linux/amd64 -t "$IMAGE" .
+make deploy ENV=dev
 ```
 
-```bash
-docker push "$IMAGE"
-```
+This does three things:
+1. builds the image (web pages + API)
+2. uploads it to Artifact Registry, tagged with the commit and `latest`
+3. updates the Cloud Run service from `deploy/cloudrun/service.yaml`
 
-**2. Deploy it.** Put the `$IMAGE` value into the `image:` line of `deploy/cloudrun/service.yaml`,
-and fill in its other placeholders. Then run:
+The service is created the first time and updated after that. At the end it prints the service
+URL. For `prod` it first asks you to type `prod` to confirm.
 
-```bash
-gcloud run services replace deploy/cloudrun/service.yaml --region=<REGION> --project=<PROJECT>
-```
+**Other options:**
 
-This creates the service the first time and updates it after that. It prints the service URL.
+| Command | What it does |
+|---|---|
+| `make build-image ENV=dev` | Builds and uploads the image only, without deploying. Same name as in `bapps-edp-services`. |
+| `make build ENV=dev` | Builds the image on your computer only. Nothing is uploaded. |
+| `make deploy ENV=stg` | Deploys to staging. Use `ENV=prod` for production (`prd` also works). |
+| `make check` | Runs all frontend and backend tests and linters. A good idea before deploying. |
+| add `ALLOW_DIRTY=1` | Builds even with uncommitted changes. The tag gets `-dirty` on the end. For testing only. |
+
+**To roll back**, deploy an earlier commit: check it out, then run `make deploy ENV=…` again.
 
 ### Let people in (after the first deploy)
 
@@ -490,6 +524,10 @@ The **Domains** page in the app shows these steps too.
 | `requested image's platform (linux/amd64) does not match the detected host platform` | Only a warning (common on Apple Silicon Macs). Adding `--platform linux/amd64` to `docker run`, as shown above, removes it. |
 | The page is blank or out of date after an update | Do a hard reload (`Cmd + Shift + R`). |
 | `npm run sync:domains` says *No metrics folder* | The MCP repo isn't next to this one. Set `MCP_REPO_PATH` as shown above. |
+| `Fill in PROJECT_ID in deploy/env/dev.env first` | Open that settings file and replace every `<FILL_ME>`. See [Fill in the deploy settings](#fill-in-the-deploy-settings-once-per-environment). |
+| `You have uncommitted changes` when deploying | Commit your changes first, so the image tag matches the code. For a test build only, add `ALLOW_DIRTY=1`. |
+| `You're not logged in to gcloud` | Run `gcloud auth login`. |
+| `docker push` says *denied* or *unauthenticated* | Make sure the repository exists, and that your account can push to it (Artifact Registry Writer). |
 
 ---
 
@@ -542,7 +580,11 @@ access-control-ui/
 │   │   ├── domains.py                  # Loads the domain list
 │   │   └── store/                      # memory.py (sample data) and bigquery.py (real tables)
 │   └── tests/                          # pytest
-├── deploy/cloudrun/service.yaml    # Cloud Run: one always-on container, IAP, service account
+├── bin/deploy.sh                   # Build, push and deploy (make build-image / make deploy)
+├── deploy/
+│   ├── env/{dev,stg,prod}.env          # Per-environment settings for the deploy script
+│   └── cloudrun/service.yaml           # Cloud Run template: one always-on container, IAP, service account
+├── Makefile                        # Shortcuts: build, build-image, deploy, check
 └── Dockerfile                      # Builds the frontend, then runs FastAPI serving UI + API
 ```
 
