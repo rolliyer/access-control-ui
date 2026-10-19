@@ -35,9 +35,12 @@ export interface MockApiOptions {
   now?: () => Date
   /** Metric domains to serve. Defaults to the output of `npm run sync:domains`. */
   domains?: Domain[]
+  /** Starting data when nothing is saved. Defaults to the sample data in mock/seed.ts. */
+  seed?: (now: Date) => MockDatabase
 }
 
-const DEFAULT_STORAGE_KEY = 'access-control-ui:mock-db:v1'
+// v2: sample data changed to the four real dev users; older saved data is ignored.
+const DEFAULT_STORAGE_KEY = 'access-control-ui:mock-db:v2'
 
 /**
  * In-browser stand-in for the backend. Enforces the same rules the tables
@@ -52,6 +55,7 @@ export class MockAccessControlApi implements AccessControlApi {
   private readonly latencyMs: number
   private readonly now: () => Date
   private readonly domains: Domain[]
+  private readonly seed: (now: Date) => MockDatabase
 
   constructor(options: MockApiOptions) {
     this.actor = options.actorEmail
@@ -60,12 +64,13 @@ export class MockAccessControlApi implements AccessControlApi {
     this.latencyMs = options.latencyMs ?? 150
     this.now = options.now ?? (() => new Date())
     this.domains = options.domains ?? generatedDomains
-    this.db = this.load() ?? createSeedDatabase(this.now())
+    this.seed = options.seed ?? createSeedDatabase
+    this.db = this.load() ?? this.seed(this.now())
   }
 
   /** Restores the original seed data. */
   reset(): void {
-    this.db = createSeedDatabase(this.now())
+    this.db = this.seed(this.now())
     this.save()
   }
 

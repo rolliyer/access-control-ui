@@ -1,35 +1,53 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MockAccessControlApi } from '../adapters/mock-adapter'
+import { MockAccessControlApi, type MockApiOptions } from '../adapters/mock-adapter'
 import { ApiError } from '../access-control-api'
+import { ABHISEKH, MAYANK, SRIDHAR, createSeedDatabase } from '../mock/seed'
 
-const ACTOR = 'admin@rollerdigital.com'
+const ACTOR = SRIDHAR
+
+function createApi(options: Partial<MockApiOptions> = {}) {
+  return new MockAccessControlApi({
+    actorEmail: ACTOR,
+    storage: null,
+    latencyMs: 0,
+    domains: ['sales', 'renewals', 'customer_success', 'support', 'finance'].map((key) => ({
+      key,
+      label: key,
+      metricCount: 1,
+      loadedByAgent: true,
+    })),
+    ...options,
+  })
+}
 
 describe('MockAccessControlApi', () => {
   let api: MockAccessControlApi
 
   beforeEach(() => {
-    api = new MockAccessControlApi({
-      actorEmail: ACTOR,
-      storage: null,
-      latencyMs: 0,
-      domains: ['sales', 'renewals', 'customer_success', 'support', 'finance'].map((key) => ({
-        key,
-        label: key,
-        metricCount: 1,
-        loadedByAgent: true,
-      })),
-    })
+    api = createApi()
   })
 
   it('creates users with a normalized email and audit fields', async () => {
-    const user = await api.createUser({
-      email: '  New.Person@RollerDigital.com ',
-      firstName: 'New',
-      lastName: 'Person',
+    // Start without Abhisekh, then add him.
+    const withoutAbhisekh = createApi({
+      seed: (now) => {
+        const db = createSeedDatabase(now)
+        const abhisekh = db.users.find((u) => u.email === ABHISEKH)!
+        return {
+          ...db,
+          users: db.users.filter((u) => u !== abhisekh),
+          grants: db.grants.filter((g) => g.userId !== abhisekh.userId),
+        }
+      },
+    })
+    const user = await withoutAbhisekh.createUser({
+      email: '  Abhisekh.Banerjee@RollerDigital.com ',
+      firstName: 'Abhisekh',
+      lastName: 'Banerjee',
       department: '',
     })
     expect(user).toMatchObject({
-      email: 'new.person@rollerdigital.com',
+      email: ABHISEKH,
       department: null,
       isActive: true,
       createdBy: ACTOR,
@@ -38,26 +56,26 @@ describe('MockAccessControlApi', () => {
 
   it('rejects duplicate emails', async () => {
     await expect(
-      api.createUser({
-        email: 'test.support@rollerdigital.com',
-        firstName: 'A',
-        lastName: 'B',
-        department: null,
-      }),
+      api.createUser({ email: MAYANK, firstName: 'Mayank', lastName: 'Agarwal', department: null }),
     ).rejects.toMatchObject({ status: 409 })
   })
 
   it('rejects non-Roller emails', async () => {
     await expect(
-      api.createUser({ email: 'x@gmail.com', firstName: 'A', lastName: 'B', department: null }),
+      api.createUser({
+        email: 'mayank.agarwal@gmail.com',
+        firstName: 'Mayank',
+        lastName: 'Agarwal',
+        department: null,
+      }),
     ).rejects.toBeInstanceOf(ApiError)
   })
 
   it('returns copies so callers cannot mutate the store', async () => {
     const [first] = await api.listUsers()
-    first!.email = 'changed@rollerdigital.com'
+    first!.email = 'changed'
     const [again] = await api.listUsers()
-    expect(again!.email).not.toBe('changed@rollerdigital.com')
+    expect(again!.email).not.toBe('changed')
   })
 
   describe('grants', () => {
@@ -65,8 +83,9 @@ describe('MockAccessControlApi', () => {
       const users = await api.listUsers()
       const roles = await api.listRoles()
       return {
-        user: users.find((u) => u.email === 'test.noroles@rollerdigital.com')!,
-        role: roles.find((r) => r.roleKey === 'support_lead')!,
+        // Abhisekh doesn't hold Finance Analyst in the sample data.
+        user: users.find((u) => u.email === ABHISEKH)!,
+        role: roles.find((r) => r.roleKey === 'finance_analyst')!,
       }
     }
 
@@ -77,8 +96,8 @@ describe('MockAccessControlApi', () => {
         roleId: role.roleId,
         grantedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        grantedBy: ACTOR,
-        reason: 'Covering support',
+        grantedBy: SRIDHAR,
+        reason: 'Covering finance',
       }
       const grant = await api.grantRole(input)
       await expect(api.grantRole(input)).rejects.toMatchObject({ status: 409 })

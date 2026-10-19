@@ -24,5 +24,5 @@ function pick(...values: (string | undefined)[]): string | undefined {
 export const appConfig: Readonly<AppConfig> = Object.freeze({
   apiMode: pick(runtime.apiMode, env.VITE_API_MODE) === 'http' ? 'http' : 'mock',
   apiBaseUrl: pick(runtime.apiBaseUrl, env.VITE_API_BASE_URL) ?? '/api',
-  actorEmail: pick(runtime.actorEmail, env.VITE_ACTOR_EMAIL) ?? 'admin@rollerdigital.com',
+  actorEmail: pick(runtime.actorEmail, env.VITE_ACTOR_EMAIL) ?? 'sridhar.iyer@rollerdigital.com',
 })

@@ -13,17 +13,19 @@ import type { PermissionRef } from '@/types/access-control'
 
 describe('email rules', () => {
   it('normalizes to trimmed lowercase', () => {
-    expect(normalizeEmail('  Jane.Doe@RollerDigital.com ')).toBe('jane.doe@rollerdigital.com')
+    expect(normalizeEmail('  Mayank.Agarwal@RollerDigital.com ')).toBe(
+      'mayank.agarwal@rollerdigital.com',
+    )
   })
 
   it('accepts rollerdigital.com addresses in any case', () => {
-    expect(validateEmail('Jane.Doe@rollerdigital.com')).toBeNull()
+    expect(validateEmail('Mayank.Agarwal@rollerdigital.com')).toBeNull()
   })
 
   it('rejects empty, other domains and malformed addresses', () => {
     expect(validateEmail('')).toMatch(/required/)
-    expect(validateEmail('jane@gmail.com')).toMatch(/rollerdigital\.com/)
-    expect(validateEmail('jane doe@rollerdigital.com')).toMatch(/valid/)
+    expect(validateEmail('mayank.agarwal@gmail.com')).toMatch(/rollerdigital\.com/)
+    expect(validateEmail('mayank agarwal@rollerdigital.com')).toMatch(/valid/)
   })
 })
 
@@ -44,8 +46,12 @@ describe('role keys', () => {
 
 describe('grant rules', () => {
   it('rejects self-approval', () => {
-    expect(validateGrantor('Jane@rollerdigital.com', 'jane@rollerdigital.com')).toMatch(/cannot/)
-    expect(validateGrantor('boss@rollerdigital.com', 'jane@rollerdigital.com')).toBeNull()
+    expect(
+      validateGrantor('Mayank.Agarwal@rollerdigital.com', 'mayank.agarwal@rollerdigital.com'),
+    ).toMatch(/cannot/)
+    expect(
+      validateGrantor('sridhar.iyer@rollerdigital.com', 'mayank.agarwal@rollerdigital.com'),
+    ).toBeNull()
   })
 
   it('requires expiry after start', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ref } from 'vue'
 import { useUserSearch } from '../useUserSearch'
-import { createSeedDatabase } from '@/api/mock/seed'
+import { MAYANK, SHIVANI, SRIDHAR, createSeedDatabase } from '@/api/mock/seed'
 
 describe('useUserSearch', () => {
   const users = ref(createSeedDatabase().users)
@@ -9,29 +9,32 @@ describe('useUserSearch', () => {
   it('matches first and last name together, case-insensitively', () => {
     const { query, results } = useUserSearch(users)
     query.value = 'sridhar IYER'
-    expect(results.value.map((u) => u.email)).toEqual(['sridhar.iyer@rollerdigital.com'])
+    expect(results.value.map((u) => u.email)).toEqual([SRIDHAR])
   })
 
   it('matches email and department', () => {
     const { query, results } = useUserSearch(users)
-    query.value = 'test.finance'
-    expect(results.value).toHaveLength(1)
-    query.value = 'marketing'
-    expect(results.value.map((u) => u.email)).toEqual(['test.noroles@rollerdigital.com'])
+    query.value = 'shivani.semwal'
+    expect(results.value.map((u) => u.email)).toEqual([SHIVANI])
+    query.value = 'support'
+    expect(results.value.map((u) => u.email)).toEqual([MAYANK])
   })
 
   it('filters by status and department, and resets', () => {
-    const { status, department, results, isFiltered, reset } = useUserSearch(users)
+    const withInactive = ref(
+      createSeedDatabase().users.map((u) => (u.email === MAYANK ? { ...u, isActive: false } : u)),
+    )
+    const { status, department, results, isFiltered, reset } = useUserSearch(withInactive)
     status.value = 'inactive'
-    expect(results.value.map((u) => u.email)).toEqual(['test.inactive@rollerdigital.com'])
+    expect(results.value.map((u) => u.email)).toEqual([MAYANK])
 
     status.value = 'all'
     department.value = 'Data'
-    expect(results.value).toHaveLength(2)
+    expect(results.value.map((u) => u.email)).toEqual([SRIDHAR])
     expect(isFiltered.value).toBe(true)
 
     reset()
-    expect(results.value).toHaveLength(users.value.length)
+    expect(results.value).toHaveLength(4)
     expect(isFiltered.value).toBe(false)
   })
 })

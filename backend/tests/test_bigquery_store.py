@@ -7,6 +7,10 @@ import pytest
 
 from app.models import RolePermission, User, UserRole
 from app.store.bigquery import BigQueryStore
+from app.store.memory import MAYANK, SRIDHAR
+
+# A value with a quote and SQL in it must travel only as a parameter.
+TRICKY = "mayank.agarwal'; DROP TABLE users; --@rollerdigital.com"
 
 NOW = datetime(2026, 10, 19, tzinfo=UTC)
 
@@ -51,18 +55,18 @@ def test_insert_user_is_parameterized():
     store.insert_user(
         User(
             user_id="u1",
-            email="a'b@rollerdigital.com",
+            email=TRICKY,
             is_active=True,
             created_at=NOW,
-            created_by="admin@rollerdigital.com",
+            created_by=SRIDHAR,
         )
     )
     sql, params = client.calls[0]
     assert sql.startswith(
         "INSERT INTO `ent-data-warehouse-dev.roller_analytics_agent_access_control.users`"
     )
-    assert "a'b" not in sql  # the value travels as a parameter only
-    assert params["email_0"].value == "a'b@rollerdigital.com"
+    assert "DROP TABLE" not in sql  # the value travels as a parameter only
+    assert params["email_0"].value == TRICKY
     assert params["is_active_0"].type_ == "BOOL"
     assert params["created_at_0"].type_ == "TIMESTAMP"
 
@@ -70,19 +74,19 @@ def test_insert_user_is_parameterized():
 def test_list_users_maps_rows():
     row = FakeRow(
         user_id="u1",
-        email="a@rollerdigital.com",
+        email=MAYANK,
         first_name="A",
         last_name="B",
         department=None,
         entra_object_id=None,
         is_active=True,
         created_at=NOW,
-        created_by="x@rollerdigital.com",
+        created_by=SRIDHAR,
         updated_at=None,
         updated_by=None,
     )
     store, _ = make_store([row])
-    assert store.list_users()[0].email == "a@rollerdigital.com"
+    assert store.list_users()[0].email == MAYANK
 
 
 def test_permission_changes_run_in_one_transaction():
@@ -93,7 +97,7 @@ def test_permission_changes_run_in_one_transaction():
         resource_type="domain",
         resource_key="finance",
         created_at=NOW,
-        created_by="x@rollerdigital.com",
+        created_by=SRIDHAR,
     )
     store.change_permissions(add=[add], remove_ids=["p1", "p2"])
     assert len(client.calls) == 1
@@ -113,9 +117,9 @@ def test_revoke_never_overwrites_an_earlier_revoke():
             user_id="u1",
             role_id="r1",
             granted_at=NOW,
-            granted_by="x@rollerdigital.com",
+            granted_by=SRIDHAR,
             revoked_at=NOW,
-            revoked_by="admin@rollerdigital.com",
+            revoked_by=SRIDHAR,
         )
     )
     sql, params = client.calls[0]

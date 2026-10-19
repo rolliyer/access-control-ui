@@ -8,13 +8,18 @@ export interface MockDatabase {
   grants: UserRole[]
 }
 
+export const SRIDHAR = 'sridhar.iyer@rollerdigital.com'
+export const MAYANK = 'mayank.agarwal@rollerdigital.com'
+export const SHIVANI = 'shivani.semwal@rollerdigital.com'
+export const ABHISEKH = 'abhisekh.banerjee@rollerdigital.com'
+
 /**
- * Mirrors semantic/access_control/dev_seed.sql in the analytics MCP repo:
- * the same roles and permissions, and users that exercise every grant rule
- * (active, expired, revoked, inactive user, future start, no roles).
+ * Sample data. The only people are the four in the analytics MCP repo's dev
+ * grant scripts (semantic/access_control/dev_grant_*.sql); the roles are
+ * those of dev_seed.sql plus sales_analyst and support_analyst from the grant
+ * scripts. Kept identical to backend/app/store/memory.py.
  */
 export function createSeedDatabase(now: Date = new Date()): MockDatabase {
-  const admin = 'sridhar.iyer@rollerdigital.com'
   const created = addDays(now, -90).toISOString()
   let seq = 0
   const id = (prefix: string) => `${prefix}-${String(++seq).padStart(4, '0')}`
@@ -26,6 +31,13 @@ export function createSeedDatabase(now: Date = new Date()): MockDatabase {
     ['finance_analyst', 'Finance Analyst', 'Finance team — sees bookings to reconcile', 'Finance'],
     ['exec', 'Executive', 'Leadership — every domain', 'Executive'],
     ['data_admin', 'Data Admin', 'Data team — every domain plus exploratory SQL', 'Data'],
+    ['sales_analyst', 'Sales Analyst', 'Can see sales metrics: pipeline, ACV, win rate', 'Sales'],
+    [
+      'support_analyst',
+      'Support Analyst',
+      'Can see support metrics: ticket volume, SLAs, CSAT, resolution time',
+      'Support',
+    ],
   ]
   const roles: Role[] = roleDefs.map(([roleKey, roleName, description, ownerTeam]) => ({
     roleId: id('role'),
@@ -33,11 +45,11 @@ export function createSeedDatabase(now: Date = new Date()): MockDatabase {
     roleName,
     description,
     ownerTeam,
-    approverEmail: admin,
+    approverEmail: SRIDHAR,
     entraGroup: null,
     isActive: true,
     createdAt: created,
-    createdBy: admin,
+    createdBy: SRIDHAR,
     updatedAt: null,
     updatedBy: null,
   }))
@@ -55,6 +67,8 @@ export function createSeedDatabase(now: Date = new Date()): MockDatabase {
     ...allDomains.map((d): [string, 'domain', string] => ['exec', 'domain', d]),
     ...allDomains.map((d): [string, 'domain', string] => ['data_admin', 'domain', d]),
     ['data_admin', 'tier', 'exploratory'],
+    ['sales_analyst', 'domain', 'sales'],
+    ['support_analyst', 'domain', 'support'],
   ]
   const permissions: RolePermission[] = permDefs.map(([key, resourceType, resourceKey]) => ({
     rolePermissionId: id('perm'),
@@ -62,64 +76,60 @@ export function createSeedDatabase(now: Date = new Date()): MockDatabase {
     resourceType,
     resourceKey,
     createdAt: created,
-    createdBy: admin,
+    createdBy: SRIDHAR,
   }))
 
-  const userDefs: [string, string, string, string, boolean][] = [
-    ['sridhar.iyer@rollerdigital.com', 'Sridhar', 'Iyer', 'Data', true],
-    ['test.finance@rollerdigital.com', 'Test', 'Finance', 'Finance', true],
-    ['test.support@rollerdigital.com', 'Test', 'Support', 'Support', true],
-    ['test.admin@rollerdigital.com', 'Test', 'Admin', 'Data', true],
-    ['test.expired@rollerdigital.com', 'Test', 'Expired', 'RevOps', true],
-    ['test.revoked@rollerdigital.com', 'Test', 'Revoked', 'RevOps', true],
-    ['test.inactive@rollerdigital.com', 'Test', 'Inactive', 'RevOps', false],
-    ['test.future@rollerdigital.com', 'Test', 'Future', 'RevOps', true],
-    ['test.noroles@rollerdigital.com', 'Test', 'Noroles', 'Marketing', true],
+  const userDefs: [string, string, string, string | null][] = [
+    [SRIDHAR, 'Sridhar', 'Iyer', 'Data'],
+    [MAYANK, 'Mayank', 'Agarwal', 'Support'],
+    [SHIVANI, 'Shivani', 'Semwal', null],
+    [ABHISEKH, 'Abhisekh', 'Banerjee', null],
   ]
-  const users: User[] = userDefs.map(([email, firstName, lastName, department, isActive]) => ({
+  const users: User[] = userDefs.map(([email, firstName, lastName, department]) => ({
     userId: id('user'),
     email,
     firstName,
     lastName,
     department,
     entraObjectId: null,
-    isActive,
+    isActive: true,
     createdAt: created,
-    createdBy: admin,
+    createdBy: SRIDHAR,
     updatedAt: null,
     updatedBy: null,
   }))
   const userId = (email: string) => users.find((u) => u.email === email)!.userId
 
   const day = (offset: number) => addDays(now, offset).toISOString()
-  const grantDefs: [string, string, string, string | null, string | null, string][] = [
-    // email, role, granted_at, expires_at, revoked_at, reason
-    ['sridhar.iyer@rollerdigital.com', 'sales_ops', day(-30), day(150), null, 'Dev testing'],
+  // email, role, granted_at, expires_at, revoked_at, approver, reason
+  const grantDefs: [string, string, string, string, string | null, string, string][] = [
     [
-      'test.finance@rollerdigital.com',
-      'finance_analyst',
-      day(-60),
-      day(20),
+      SRIDHAR,
+      'data_admin',
+      day(-45),
+      day(135),
       null,
-      'Joined Finance',
+      ABHISEKH,
+      'Builds the access-control tooling',
     ],
-    ['test.support@rollerdigital.com', 'support_lead', day(-10), day(170), null, 'Support lead'],
-    ['test.admin@rollerdigital.com', 'data_admin', day(-45), day(135), null, 'Data team'],
-    ['test.expired@rollerdigital.com', 'sales_ops', day(-200), day(-1), null, 'Expired test'],
-    ['test.revoked@rollerdigital.com', 'sales_ops', day(-20), day(160), day(-2), 'Revoked test'],
-    ['test.inactive@rollerdigital.com', 'sales_ops', day(-20), day(160), null, 'Inactive test'],
-    ['test.future@rollerdigital.com', 'sales_ops', day(1), day(181), null, 'Starts tomorrow'],
+    [MAYANK, 'support_analyst', day(-10), day(170), null, SRIDHAR, 'Support metrics access'],
+    [MAYANK, 'support_lead', day(-40), day(140), day(-11), SRIDHAR, 'Replaced by Support Analyst'],
+    [SHIVANI, 'sales_analyst', day(-1), day(1), null, SRIDHAR, 'Temporary 1-day access'],
+    [SHIVANI, 'support_analyst', day(-1), day(1), null, SRIDHAR, 'Temporary 1-day access'],
+    [SHIVANI, 'finance_analyst', day(-200), day(-20), null, SRIDHAR, 'Quarter-end reconciliation'],
+    [ABHISEKH, 'sales_analyst', day(-5), day(360), null, SRIDHAR, '1-year access to sales'],
+    [ABHISEKH, 'support_analyst', day(-5), day(360), null, SRIDHAR, '1-year access to support'],
   ]
   const grants: UserRole[] = grantDefs.map(
-    ([email, key, grantedAt, expiresAt, revokedAt, reason]) => ({
+    ([email, key, grantedAt, expiresAt, revokedAt, grantedBy, reason]) => ({
       userRoleId: id('grant'),
       userId: userId(email),
       roleId: roleId(key),
       grantedAt,
-      grantedBy: email === admin ? 'test.admin@rollerdigital.com' : admin,
+      grantedBy,
       expiresAt,
       revokedAt,
-      revokedBy: revokedAt ? admin : null,
+      revokedBy: revokedAt ? SRIDHAR : null,
       reason,
     }),
   )

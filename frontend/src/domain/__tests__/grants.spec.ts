@@ -11,7 +11,7 @@ function grant(overrides: Partial<UserRole> = {}): UserRole {
     userId: 'u1',
     roleId: 'r1',
     grantedAt: iso(-10),
-    grantedBy: 'approver@rollerdigital.com',
+    grantedBy: 'sridhar.iyer@rollerdigital.com',
     expiresAt: iso(100),
     revokedAt: null,
     revokedBy: null,

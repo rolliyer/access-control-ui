@@ -62,7 +62,8 @@ There are two ways to run it locally:
 - **B. Web pages + backend**: the full app. The web pages talk to the real API, which uses sample
   data in its memory. Needs Node.js and Python (`uv`).
 
-Neither one touches BigQuery.
+Neither one touches BigQuery. To work with the real dev tables, use
+[Docker with your credentials](#use-the-real-dev-tables-instead-of-sample-data).
 
 ### What you need first
 
@@ -142,7 +143,7 @@ AUTH_MODE=dev uv run uvicorn app.main:create_app --factory --reload --port 8000
 You should see `Uvicorn running on http://127.0.0.1:8000`. To check it, open
 http://localhost:8000/healthz; it should say `ok`.
 
-`AUTH_MODE=dev` treats you as the signed-in admin `dev.admin@rollerdigital.com`. Never use it on a
+`AUTH_MODE=dev` treats you as the signed-in admin `sridhar.iyer@rollerdigital.com`. Never use it on a
 server; the app refuses to start that way on Cloud Run.
 
 **Terminal 2: start the web pages, connected to the backend**
@@ -248,6 +249,49 @@ It should print `ok`.
 ```bash
 docker stop access-control-ui
 ```
+
+### Use the real dev tables instead of sample data
+
+The steps above use sample data. To see and manage the **real** access-control tables in
+`ent-data-warehouse-dev`, start the container with your own Google credentials instead.
+
+> **This changes real data.** Opening pages only reads. Saving anything (adding a user, granting or
+> revoking a role, editing a role) writes to the dev tables, and the analytics agent picks it up
+> within about 5 minutes. Reading the real tables has been checked; making changes through the app
+> hasn't been tested against the real tables yet, so try it on your own test grants first.
+
+**What you need first:**
+- the image, built as in step 2 above
+- the **Google Cloud CLI** (`gcloud`): install it from https://cloud.google.com/sdk/docs/install
+- a Google account that can read and edit the `roller_analytics_agent_access_control` dataset and
+  run queries in `ent-data-warehouse-dev`
+
+**1. Log in so programs can use your Google credentials.** You only do this once; run it again if
+you later get a credentials error. A browser window opens for you to sign in:
+
+```bash
+gcloud auth application-default login
+```
+
+This saves your credentials in `~/.config/gcloud/application_default_credentials.json`.
+
+**2. Start the container against the dev tables:**
+
+```bash
+docker run --rm --name access-control-ui --platform linux/amd64 -p 8088:8088 -e AUTH_MODE=dev -e STORE=bigquery -e BQ_PROJECT=ent-data-warehouse-dev -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/adc.json -v "$HOME/.config/gcloud/application_default_credentials.json:/tmp/adc.json:ro" access-control-ui:local
+```
+
+What the extra parts do:
+- `-e STORE=bigquery -e BQ_PROJECT=ent-data-warehouse-dev` uses the real tables in that project.
+- `-v …:/tmp/adc.json:ro` shares your credentials file with the container, read-only.
+- `-e GOOGLE_APPLICATION_CREDENTIALS=/tmp/adc.json` tells the app where that file is.
+
+The app now reads and writes BigQuery **as your Google account**. `AUTH_MODE=dev` still records
+changes as made by `sridhar.iyer@rollerdigital.com`. To record a different person, add
+`-e DEV_USER_EMAIL=<your email>`.
+
+**3. Open http://localhost:8088.** You'll see the real people, roles and grants from the dev
+tables. Stop it the same way as before.
 
 ---
 
@@ -392,7 +436,7 @@ gcloud run services add-iam-policy-binding access-control-ui --region=<REGION> -
 **2. Allow each admin to sign in.** Repeat for every person:
 
 ```bash
-gcloud iap web add-iam-policy-binding --member=user:jane.doe@rollerdigital.com --role=roles/iap.httpsResourceAccessor --region=<REGION> --resource-type=cloud-run --service=access-control-ui --project=<PROJECT>
+gcloud iap web add-iam-policy-binding --member=user:mayank.agarwal@rollerdigital.com --role=roles/iap.httpsResourceAccessor --region=<REGION> --resource-type=cloud-run --service=access-control-ui --project=<PROJECT>
 ```
 
 To limit admin powers further, set `ADMIN_EMAILS` in `service.yaml` (see [Settings](#settings)).
@@ -417,7 +461,7 @@ front of the `uv run` command locally.
 | `BQ_DATASET` | `roller_analytics_agent_access_control` | The access-control dataset. |
 | `AUTH_MODE` | `iap` | `iap` checks Google sign-in. `dev` treats everyone as `DEV_USER_EMAIL`; for local use only, and refused on Cloud Run. |
 | `IAP_AUDIENCE` | – | Required when `AUTH_MODE=iap`: `/projects/<PROJECT_NUMBER>/locations/<REGION>/services/access-control-ui`. |
-| `DEV_USER_EMAIL` | `dev.admin@rollerdigital.com` | Who you are when `AUTH_MODE=dev`. |
+| `DEV_USER_EMAIL` | `sridhar.iyer@rollerdigital.com` | Who you are when `AUTH_MODE=dev`. |
 | `ADMIN_EMAILS` | *(empty)* | Comma-separated admins. Empty means everyone IAP lets in is an admin. |
 | `DOMAINS_FILE` | the synced domain list | The metric domains file (see [Adding a new data domain](#adding-a-new-data-domain)). |
 | `STATIC_DIR` | *(none locally; `/app/static` in Docker)* | The built web pages to serve. |
@@ -457,17 +501,30 @@ the web pages its settings through `/config.js`.
 
 | How you run it | Where data lives |
 |---|---|
-| `npm run dev` (web pages only) | In your browser. Sample data matching `dev_seed.sql`, saved in local storage. |
+| `npm run dev` (web pages only) | In your browser. The sample data below, saved in local storage. |
 | Backend with `STORE=memory` (local, or Docker) | In the backend's memory. Same sample data, reset when it restarts. |
-| Backend with `STORE=bigquery` (Cloud Run) | The real BigQuery tables. |
+| Backend with `STORE=bigquery` (Cloud Run, or [Docker with your credentials](#use-the-real-dev-tables-instead-of-sample-data)) | The real BigQuery tables. |
 
 The browser never connects to BigQuery directly. Only the backend does.
+
+**The sample data** (used by `npm run dev` and by the backend with `STORE=memory`) has only four
+people. They are the ones in the analytics MCP repo's dev grant scripts:
+
+| Person | Sample roles |
+|---|---|
+| `sridhar.iyer@rollerdigital.com` | Data Admin (every domain + exploratory SQL) |
+| `mayank.agarwal@rollerdigital.com` | Support Analyst, plus an old revoked Support Lead grant |
+| `shivani.semwal@rollerdigital.com` | Sales and Support Analyst, expiring in a day, plus an expired Finance Analyst grant |
+| `abhisekh.banerjee@rollerdigital.com` | Sales and Support Analyst for a year |
+
+It lives in `frontend/src/api/mock/seed.ts` and `backend/app/store/memory.py`. Keep the two the
+same.
 
 **To reset the browser's sample data** (web-pages-only mode):
 1. Open the app.
 2. Open the browser's developer tools (`Cmd + Option + I` on a Mac).
 3. Go to **Application → Local Storage**.
-4. Delete the key `access-control-ui:mock-db:v1`.
+4. Delete the key `access-control-ui:mock-db:v2`.
 5. Reload the page.
 
 ---
@@ -518,6 +575,9 @@ The **Domains** page in the app shows these steps too.
 | The page shows errors like *Sign in through IAP to use this API* locally | Start the backend with `AUTH_MODE=dev` (see step B). |
 | `ConfigError: AUTH_MODE=iap needs IAP_AUDIENCE` from `docker run` | Add `-e AUTH_MODE=dev` for local runs. On Cloud Run, set `IAP_AUDIENCE`. |
 | *… is not an access-control admin* (403) | Your email isn't in `ADMIN_EMAILS`. Add it, or leave `ADMIN_EMAILS` empty. |
+| Errors mentioning *DefaultCredentialsError* or *Reauthentication is needed* with `STORE=bigquery` | Your Google credentials are missing or expired. Run `gcloud auth application-default login` again, then restart the container. |
+| Errors mentioning *Access Denied* or *403* from BigQuery | Your Google account can't read or edit the access-control dataset in that project. Ask for BigQuery Data Editor on the dataset and Job User on the project. |
+| With `STORE=bigquery`, `docker run` fails on the `-v` part, or the app can't read `/tmp/adc.json` | The credentials file doesn't exist yet. Run `gcloud auth application-default login` (step 1 of [Use the real dev tables](#use-the-real-dev-tables-instead-of-sample-data)). |
 | `Cannot connect to the Docker daemon` | Docker Desktop isn't running. Open it and wait until it says it's running. |
 | `Bind for 0.0.0.0:8088 failed: port is already allocated` | Port 8088 is busy. Change the first number, e.g. `-p 8089:8088`, then open http://localhost:8089. |
 | `The container name "/access-control-ui" is already in use` | It's already running in another terminal. Use that one, or run `docker stop access-control-ui` first. |

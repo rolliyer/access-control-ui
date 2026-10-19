@@ -7,8 +7,9 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.store import MemoryStore
+from app.store.memory import ABHISEKH, SRIDHAR, seed_data
 
-DEV_ADMIN = "dev.admin@rollerdigital.com"
+DEV_ADMIN = SRIDHAR
 DOMAINS = ["sales", "renewals", "customer_success", "support", "finance"]
 
 
@@ -34,6 +35,18 @@ def settings(domains_file: Path) -> Settings:
 @pytest.fixture
 def client(settings: Settings) -> TestClient:
     return TestClient(create_app(settings, store=MemoryStore.seeded()))
+
+
+@pytest.fixture
+def client_without_abhisekh(settings: Settings) -> TestClient:
+    """Sample data minus Abhisekh, so tests can add him as a new user."""
+    from datetime import UTC, datetime
+
+    data = seed_data(datetime.now(UTC))
+    gone = next(u for u in data["users"] if u.email == ABHISEKH)
+    data["users"] = [u for u in data["users"] if u is not gone]
+    data["grants"] = [g for g in data["grants"] if g.user_id != gone.user_id]
+    return TestClient(create_app(settings, store=MemoryStore(**data)))
 
 
 def by_email(client: TestClient, email: str) -> dict:

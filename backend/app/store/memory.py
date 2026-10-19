@@ -81,9 +81,17 @@ class MemoryStore:
                 return
 
 
+SRIDHAR = "sridhar.iyer@rollerdigital.com"
+MAYANK = "mayank.agarwal@rollerdigital.com"
+SHIVANI = "shivani.semwal@rollerdigital.com"
+ABHISEKH = "abhisekh.banerjee@rollerdigital.com"
+
+
 def seed_data(now: datetime) -> dict:
-    """Mirrors semantic/access_control/dev_seed.sql (and frontend/src/api/mock/seed.ts)."""
-    admin = "sridhar.iyer@rollerdigital.com"
+    """Sample data: only the four people in the analytics MCP repo's dev grant
+    scripts (semantic/access_control/dev_grant_*.sql). The roles are those of
+    dev_seed.sql plus sales_analyst and support_analyst from the grant scripts.
+    Kept identical to frontend/src/api/mock/seed.ts."""
     created = now - timedelta(days=90)
     counter = iter(range(1, 10_000))
 
@@ -102,6 +110,18 @@ def seed_data(now: datetime) -> dict:
         ),
         ("exec", "Executive", "Leadership — every domain", "Executive"),
         ("data_admin", "Data Admin", "Data team — every domain plus exploratory SQL", "Data"),
+        (
+            "sales_analyst",
+            "Sales Analyst",
+            "Can see sales metrics: pipeline, ACV, win rate",
+            "Sales",
+        ),
+        (
+            "support_analyst",
+            "Support Analyst",
+            "Can see support metrics: ticket volume, SLAs, CSAT, resolution time",
+            "Support",
+        ),
     ]
     roles = [
         Role(
@@ -110,10 +130,10 @@ def seed_data(now: datetime) -> dict:
             role_name=name,
             description=desc,
             owner_team=team,
-            approver_email=admin,
+            approver_email=SRIDHAR,
             is_active=True,
             created_at=created,
-            created_by=admin,
+            created_by=SRIDHAR,
         )
         for key, name, desc, team in role_defs
     ]
@@ -131,6 +151,8 @@ def seed_data(now: datetime) -> dict:
         *[("exec", "domain", d) for d in all_domains],
         *[("data_admin", "domain", d) for d in all_domains],
         ("data_admin", "tier", "exploratory"),
+        ("sales_analyst", "domain", "sales"),
+        ("support_analyst", "domain", "support"),
     ]
     permissions = [
         RolePermission(
@@ -139,21 +161,16 @@ def seed_data(now: datetime) -> dict:
             resource_type=rtype,
             resource_key=rkey,
             created_at=created,
-            created_by=admin,
+            created_by=SRIDHAR,
         )
         for key, rtype, rkey in perm_defs
     ]
 
     user_defs = [
-        ("sridhar.iyer@rollerdigital.com", "Sridhar", "Iyer", "Data", True),
-        ("test.finance@rollerdigital.com", "Test", "Finance", "Finance", True),
-        ("test.support@rollerdigital.com", "Test", "Support", "Support", True),
-        ("test.admin@rollerdigital.com", "Test", "Admin", "Data", True),
-        ("test.expired@rollerdigital.com", "Test", "Expired", "RevOps", True),
-        ("test.revoked@rollerdigital.com", "Test", "Revoked", "RevOps", True),
-        ("test.inactive@rollerdigital.com", "Test", "Inactive", "RevOps", False),
-        ("test.future@rollerdigital.com", "Test", "Future", "RevOps", True),
-        ("test.noroles@rollerdigital.com", "Test", "Noroles", "Marketing", True),
+        (SRIDHAR, "Sridhar", "Iyer", "Data"),
+        (MAYANK, "Mayank", "Agarwal", "Support"),
+        (SHIVANI, "Shivani", "Semwal", None),
+        (ABHISEKH, "Abhisekh", "Banerjee", None),
     ]
     users = [
         User(
@@ -162,47 +179,51 @@ def seed_data(now: datetime) -> dict:
             first_name=first,
             last_name=last,
             department=dept,
-            is_active=active,
+            is_active=True,
             created_at=created,
-            created_by=admin,
+            created_by=SRIDHAR,
         )
-        for email, first, last, dept, active in user_defs
+        for email, first, last, dept in user_defs
     ]
     user_id = {u.email: u.user_id for u in users}
 
     def day(offset: int) -> datetime:
         return now + timedelta(days=offset)
 
+    # email, role, granted_at, expires_at, revoked_at, approver, reason
     grant_defs = [
-        ("sridhar.iyer@rollerdigital.com", "sales_ops", day(-30), day(150), None, "Dev testing"),
         (
-            "test.finance@rollerdigital.com",
-            "finance_analyst",
-            day(-60),
-            day(20),
+            SRIDHAR,
+            "data_admin",
+            day(-45),
+            day(135),
             None,
-            "Joined Finance",
+            ABHISEKH,
+            "Builds the access-control tooling",
         ),
+        (MAYANK, "support_analyst", day(-10), day(170), None, SRIDHAR, "Support metrics access"),
         (
-            "test.support@rollerdigital.com",
+            MAYANK,
             "support_lead",
-            day(-10),
-            day(170),
-            None,
-            "Support lead",
+            day(-40),
+            day(140),
+            day(-11),
+            SRIDHAR,
+            "Replaced by Support Analyst",
         ),
-        ("test.admin@rollerdigital.com", "data_admin", day(-45), day(135), None, "Data team"),
-        ("test.expired@rollerdigital.com", "sales_ops", day(-200), day(-1), None, "Expired test"),
+        (SHIVANI, "sales_analyst", day(-1), day(1), None, SRIDHAR, "Temporary 1-day access"),
+        (SHIVANI, "support_analyst", day(-1), day(1), None, SRIDHAR, "Temporary 1-day access"),
         (
-            "test.revoked@rollerdigital.com",
-            "sales_ops",
+            SHIVANI,
+            "finance_analyst",
+            day(-200),
             day(-20),
-            day(160),
-            day(-2),
-            "Revoked test",
+            None,
+            SRIDHAR,
+            "Quarter-end reconciliation",
         ),
-        ("test.inactive@rollerdigital.com", "sales_ops", day(-20), day(160), None, "Inactive test"),
-        ("test.future@rollerdigital.com", "sales_ops", day(1), day(181), None, "Starts tomorrow"),
+        (ABHISEKH, "sales_analyst", day(-5), day(360), None, SRIDHAR, "1-year access to sales"),
+        (ABHISEKH, "support_analyst", day(-5), day(360), None, SRIDHAR, "1-year access to support"),
     ]
     grants = [
         UserRole(
@@ -212,10 +233,10 @@ def seed_data(now: datetime) -> dict:
             granted_at=granted,
             expires_at=expires,
             revoked_at=revoked,
-            revoked_by=admin if revoked else None,
+            revoked_by=SRIDHAR if revoked else None,
+            granted_by=approver,
             reason=reason,
-            granted_by="test.admin@rollerdigital.com" if email == admin else admin,
         )
-        for email, key, granted, expires, revoked, reason in grant_defs
+        for email, key, granted, expires, revoked, approver, reason in grant_defs
     ]
     return {"users": users, "roles": roles, "permissions": permissions, "grants": grants}

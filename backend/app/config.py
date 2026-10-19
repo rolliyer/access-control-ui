@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # "dev" trusts DEV_USER_EMAIL and is for local development only.
     auth_mode: Literal["iap", "dev"] = "iap"
     iap_audience: str | None = None
-    dev_user_email: str = "dev.admin@rollerdigital.com"
+    dev_user_email: str = "sridhar.iyer@rollerdigital.com"
     # Comma-separated. Empty = anyone IAP lets through is an admin.
     admin_emails: str = ""
 
