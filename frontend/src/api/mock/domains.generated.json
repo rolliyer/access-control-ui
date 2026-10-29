@@ -12,6 +12,12 @@
     "loadedByAgent": true
   },
   {
+    "key": "marketing",
+    "label": "Marketing",
+    "metricCount": 42,
+    "loadedByAgent": true
+  },
+  {
     "key": "renewals",
     "label": "Renewals",
     "metricCount": 0,
@@ -26,7 +32,7 @@
   {
     "key": "support",
     "label": "Support",
-    "metricCount": 6,
+    "metricCount": 19,
     "loadedByAgent": true
   }
 ]
