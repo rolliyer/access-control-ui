@@ -113,7 +113,7 @@ async function submit(): Promise<void> {
 <template>
   <BaseModal
     v-model:open="open"
-    title="Add many people"
+    title="Add Persons"
     :description="`Add a list of people to ${group.groupName}. They all get the same dates, approver and reason.`"
     size="lg"
   >

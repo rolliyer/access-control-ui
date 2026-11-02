@@ -42,7 +42,7 @@ The repo has two parts, which run together in **one container**:
   Add them to a group or remove them from one. Global admins can also edit their details or
   deactivate them.
 - **Groups**: each group belongs to a team and has roles. Add or remove members (one at a time, or
-  [many at once](#add-many-people-to-a-group)), and add or remove the group's roles.
+  [many at once](#add-many-people-to-a-group-add-persons)), and add or remove the group's roles.
 - **Teams**: the teams that manage groups, and each team's admins.
 - **Roles & permissions**: create roles, choose which team owns each one, and tick which domains it
   can see.
@@ -89,9 +89,9 @@ a person  →  is in a group  →  the group has roles  →  each role lists wha
 Everyone signed in can **see** everything. Team admins see buttons only for what they may change,
 and the backend refuses anything else.
 
-### Add many people to a group
+### Add many people to a group (Add Persons)
 
-On a group's page, click **Add many**.
+On a group's page, click **+ Add Persons**. (**+ Add Person** adds one person at a time.)
 
 1. **Paste emails** into the box. Separate them with commas, spaces or new lines, in any mix.
    **Or click Upload .txt or .csv** to read them from a file. A CSV can have other columns (names,

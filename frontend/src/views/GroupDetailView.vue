@@ -137,11 +137,11 @@ const { run: toggleActive, pending: toggling } = useAsyncAction(
         <BaseButton :variant="group.isActive ? 'danger' : 'secondary'" @click="statusOpen = true">
           {{ group.isActive ? 'Retire' : 'Reactivate' }}
         </BaseButton>
-        <BaseButton variant="secondary" :disabled="!group.isActive" @click="bulkAddOpen = true">
-          Add many
-        </BaseButton>
         <BaseButton :disabled="!group.isActive" @click="addMemberOpen = true">
-          + Add person
+          + Add Person
+        </BaseButton>
+        <BaseButton :disabled="!group.isActive" @click="bulkAddOpen = true">
+          + Add Persons
         </BaseButton>
       </template>
     </PageHeader>
@@ -249,8 +249,8 @@ const { run: toggleActive, pending: toggling } = useAsyncAction(
       />
       <EmptyState v-else title="No members" message="Add people to give them this group's roles.">
         <template v-if="canManage && group.isActive">
-          <BaseButton variant="secondary" @click="bulkAddOpen = true">Add many</BaseButton>
-          <BaseButton @click="addMemberOpen = true">+ Add person</BaseButton>
+          <BaseButton @click="addMemberOpen = true">+ Add Person</BaseButton>
+          <BaseButton @click="bulkAddOpen = true">+ Add Persons</BaseButton>
         </template>
       </EmptyState>
     </BaseCard>
