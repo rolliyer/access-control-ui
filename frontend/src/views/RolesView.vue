@@ -7,12 +7,14 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import RoleCard from '@/components/roles/RoleCard.vue'
 import RoleFormModal from '@/components/roles/RoleFormModal.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
-import { useGrantsStore } from '@/stores/grants'
+import { useAccessStore } from '@/stores/access'
 import { useRolesStore } from '@/stores/roles'
+import { useSessionStore } from '@/stores/session'
 import type { Role } from '@/types/access-control'
 
 const rolesStore = useRolesStore()
-const grantsStore = useGrantsStore()
+const access = useAccessStore()
+const session = useSessionStore()
 
 const formOpen = ref(false)
 const editingRole = ref<Role | null>(null)
@@ -38,9 +40,9 @@ const toggleConfirmOpen = computed({
 const toggleMessage = computed(() => {
   const role = toggleTarget.value
   if (!role) return ''
-  const holders = grantsStore.activeHolderCount(role.roleId)
+  const holders = access.holderCount(role.roleKey)
   return role.isActive
-    ? `Retiring ${role.roleName} removes this access from ${holders} current holder(s) within 5 minutes. Grants are kept and come back if you reactivate it.`
+    ? `Retiring ${role.roleName} removes this access from ${holders} person(s) within 5 minutes. Groups keep it and it comes back if you reactivate it.`
     : `Reactivating ${role.roleName} restores access for anyone with a valid grant.`
 })
 
@@ -59,9 +61,9 @@ const { run: toggleActive, pending: toggling } = useAsyncAction(
   <div>
     <PageHeader
       title="Roles & permissions"
-      subtitle="A role is a keycard type: it opens the domains listed on it. Access only exists where a role says so."
+      subtitle="A role is a keycard type: it opens the domains listed on it. Groups hand roles to people. Only global admins change roles."
     >
-      <template #actions>
+      <template v-if="session.isGlobalAdmin" #actions>
         <BaseButton @click="openCreate">+ New role</BaseButton>
       </template>
     </PageHeader>
@@ -72,13 +74,14 @@ const { run: toggleActive, pending: toggling } = useAsyncAction(
         :key="role.roleId"
         :role="role"
         :permissions="rolesStore.permissionsFor(role.roleId)"
-        :holder-count="grantsStore.activeHolderCount(role.roleId)"
+        :holder-count="access.holderCount(role.roleKey)"
+        :editable="session.isGlobalAdmin"
         @edit="openEdit"
         @toggle-active="toggleTarget = $event"
       />
     </div>
-    <EmptyState v-else title="No roles yet" message="Create a role, then grant it to people.">
-      <BaseButton @click="openCreate">+ New role</BaseButton>
+    <EmptyState v-else title="No roles yet" message="Create a role, then add it to groups.">
+      <BaseButton v-if="session.isGlobalAdmin" @click="openCreate">+ New role</BaseButton>
     </EmptyState>
 
     <RoleFormModal v-model:open="formOpen" :role="editingRole" />

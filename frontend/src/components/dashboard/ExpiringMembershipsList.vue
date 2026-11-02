@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { RouteName } from '@/router/route-names'
-import { useRolesStore } from '@/stores/roles'
+import { useGroupsStore } from '@/stores/groups'
 import { useUsersStore } from '@/stores/users'
 import { EXPIRING_SOON_DAYS } from '@/domain/grants'
-import type { UserRole } from '@/types/access-control'
+import type { GroupMember } from '@/types/access-control'
 import { formatDate, formatRelative } from '@/utils/date'
 import { fullName } from '@/utils/user'
 
-defineProps<{ grants: readonly UserRole[] }>()
+defineProps<{ members: readonly GroupMember[] }>()
 
 const usersStore = useUsersStore()
-const rolesStore = useRolesStore()
+const groupsStore = useGroupsStore()
 
 function userName(userId: string): string {
   const user = usersStore.byId.get(userId)
@@ -20,18 +20,18 @@ function userName(userId: string): string {
 </script>
 
 <template>
-  <ul v-if="grants.length" class="expiring">
-    <li v-for="grant in grants" :key="grant.userRoleId" class="expiring__item">
+  <ul v-if="members.length" class="expiring">
+    <li v-for="member in members" :key="member.groupMemberId" class="expiring__item">
       <RouterLink
-        :to="{ name: RouteName.UserDetail, params: { userId: grant.userId } }"
+        :to="{ name: RouteName.UserDetail, params: { userId: member.userId } }"
         class="expiring__link"
       >
         <span>
-          <strong>{{ userName(grant.userId) }}</strong>
-          <small>{{ rolesStore.byId.get(grant.roleId)?.roleName }}</small>
+          <strong>{{ userName(member.userId) }}</strong>
+          <small>{{ groupsStore.byId.get(member.groupId)?.groupName }}</small>
         </span>
-        <span class="expiring__when" :title="formatDate(grant.expiresAt)">
-          {{ formatRelative(grant.expiresAt ?? '') }}
+        <span class="expiring__when" :title="formatDate(member.expiresAt)">
+          {{ formatRelative(member.expiresAt ?? '') }}
         </span>
       </RouterLink>
     </li>
@@ -39,7 +39,7 @@ function userName(userId: string): string {
   <EmptyState
     v-else
     title="Nothing expiring soon"
-    :message="`No active grants expire in the next ${EXPIRING_SOON_DAYS} days.`"
+    :message="`No group memberships end in the next ${EXPIRING_SOON_DAYS} days.`"
   />
 </template>
 

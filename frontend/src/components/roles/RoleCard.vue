@@ -3,15 +3,20 @@ import { computed } from 'vue'
 import BaseBadge from '@/components/ui/BaseBadge.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ResourceChips from '@/components/access/ResourceChips.vue'
+import { useTeamsStore } from '@/stores/teams'
 import type { Role, RolePermission } from '@/types/access-control'
 
 const { role, permissions } = defineProps<{
   role: Role
   permissions: readonly RolePermission[]
   holderCount: number
+  /** Only global admins change roles and permissions. */
+  editable: boolean
 }>()
 
 const emit = defineEmits<{ edit: [role: Role]; toggleActive: [role: Role] }>()
+
+const teamsStore = useTeamsStore()
 
 const domains = computed(() =>
   permissions.filter((p) => p.resourceType === 'domain').map((p) => p.resourceKey),
@@ -40,12 +45,12 @@ const tiers = computed(() =>
 
     <dl class="role__meta">
       <div>
-        <dt>Holders</dt>
+        <dt>People with it</dt>
         <dd>{{ holderCount }}</dd>
       </div>
       <div>
         <dt>Owner team</dt>
-        <dd>{{ role.ownerTeam ?? '—' }}</dd>
+        <dd>{{ role.teamId ? teamsStore.teamName(role.teamId) : 'Global admins only' }}</dd>
       </div>
       <div class="role__meta-wide">
         <dt>Approver</dt>
@@ -53,7 +58,7 @@ const tiers = computed(() =>
       </div>
     </dl>
 
-    <footer class="role__actions">
+    <footer v-if="editable" class="role__actions">
       <BaseButton variant="secondary" size="sm" @click="emit('edit', role)">
         Edit role & permissions
       </BaseButton>

@@ -3,7 +3,7 @@ import type { Domain, PermissionRef } from '@/types/access-control'
 export const EMAIL_DOMAIN = '@rollerdigital.com'
 
 const EMAIL_PATTERN = /^[a-z0-9._%+-]+@rollerdigital\.com$/
-const ROLE_KEY_PATTERN = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
+const KEY_PATTERN = /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/
 
 /** Emails must match the Entra sign-in name exactly: lowercase, trimmed. */
 export function normalizeEmail(email: string): string {
@@ -23,15 +23,22 @@ export function validateRequired(value: string | null | undefined, label: string
   return value?.trim() ? null : `${label} is required.`
 }
 
-export function validateRoleKey(roleKey: string): string | null {
-  if (!roleKey.trim()) return 'Role key is required.'
-  if (!ROLE_KEY_PATTERN.test(roleKey)) {
-    return 'Use lowercase words joined with underscores, e.g. support_analyst.'
-  }
+/** Role, team and group keys: lowercase words joined with underscores. */
+export function validateKey(
+  key: string,
+  label = 'Role key',
+  example = 'support_analyst',
+): string | null {
+  if (!key.trim()) return `${label} is required.`
+  if (!KEY_PATTERN.test(key)) return `Use lowercase words joined with underscores, e.g. ${example}.`
   return null
 }
 
-/** Suggests a role key from a display name: "Support Analyst" → "support_analyst". */
+export function validateRoleKey(roleKey: string): string | null {
+  return validateKey(roleKey)
+}
+
+/** Suggests a key from a display name: "Support Analyst" → "support_analyst". */
 export function toRoleKey(name: string): string {
   return name
     .trim()

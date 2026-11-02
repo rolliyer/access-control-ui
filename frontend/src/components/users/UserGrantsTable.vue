@@ -3,11 +3,12 @@ import BaseBadge from '@/components/ui/BaseBadge.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import GrantStatusBadge from '@/components/access/GrantStatusBadge.vue'
 import { useRolesStore } from '@/stores/roles'
-import { isGrantOpen } from '@/domain/grants'
+import { grantWindow, isGrantOpen } from '@/domain/grants'
 import type { UserRole } from '@/types/access-control'
 import { formatDate, formatRelative } from '@/utils/date'
 
-defineProps<{ grants: readonly UserRole[] }>()
+/** Legacy direct grants (from before groups). They can only be revoked. */
+defineProps<{ grants: readonly UserRole[]; canRevoke: boolean }>()
 const emit = defineEmits<{ revoke: [grant: UserRole] }>()
 
 const rolesStore = useRolesStore()
@@ -35,7 +36,7 @@ const rolesStore = useRolesStore()
               Retired
             </BaseBadge>
           </td>
-          <td><GrantStatusBadge :grant="grant" /></td>
+          <td><GrantStatusBadge :access="grantWindow(grant)" /></td>
           <td>{{ formatDate(grant.grantedAt) }}</td>
           <td>
             <template v-if="grant.revokedAt">
@@ -52,7 +53,7 @@ const rolesStore = useRolesStore()
           <td>{{ grant.reason ?? '—' }}</td>
           <td class="actions">
             <BaseButton
-              v-if="isGrantOpen(grant)"
+              v-if="canRevoke && isGrantOpen(grant)"
               variant="danger"
               size="sm"
               @click="emit('revoke', grant)"

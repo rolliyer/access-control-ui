@@ -9,12 +9,13 @@ import SearchInput from '@/components/ui/SearchInput.vue'
 import StatCard from '@/components/ui/StatCard.vue'
 import AccessMatrix from '@/components/dashboard/AccessMatrix.vue'
 import DomainCoverage from '@/components/dashboard/DomainCoverage.vue'
-import ExpiringGrantsList from '@/components/dashboard/ExpiringGrantsList.vue'
+import ExpiringMembershipsList from '@/components/dashboard/ExpiringMembershipsList.vue'
 import AddUserModal from '@/components/users/AddUserModal.vue'
 import { useUserSearch } from '@/composables/useUserSearch'
 import { RouteName } from '@/router/route-names'
-import { useGrantsStore } from '@/stores/grants'
+import { useGroupsStore } from '@/stores/groups'
 import { useRolesStore } from '@/stores/roles'
+import { useTeamsStore } from '@/stores/teams'
 import { useUsersStore } from '@/stores/users'
 import { EXPIRING_SOON_DAYS } from '@/domain/grants'
 import type { User } from '@/types/access-control'
@@ -22,7 +23,8 @@ import type { User } from '@/types/access-control'
 const router = useRouter()
 const usersStore = useUsersStore()
 const rolesStore = useRolesStore()
-const grantsStore = useGrantsStore()
+const groupsStore = useGroupsStore()
+const teamsStore = useTeamsStore()
 
 const showInactive = ref(false)
 const { query, status, results } = useUserSearch(() => usersStore.sorted, { status: 'active' })
@@ -64,14 +66,15 @@ function onUserCreated(user: User): void {
         :to="{ name: RouteName.Roles }"
       />
       <StatCard
-        label="Active grants"
-        :value="grantsStore.activeGrants.length"
-        caption="Roles currently held"
+        label="Active groups"
+        :value="groupsStore.activeGroups.length"
+        :caption="`${groupsStore.activeMemberships.length} memberships · ${teamsStore.activeTeams.length} teams`"
+        :to="{ name: RouteName.Groups }"
       />
       <StatCard
         label="Expiring soon"
-        :value="grantsStore.expiringSoon.length"
-        :caption="`Within ${EXPIRING_SOON_DAYS} days`"
+        :value="groupsStore.expiringSoon.length"
+        :caption="`Memberships ending within ${EXPIRING_SOON_DAYS} days`"
       />
     </div>
 
@@ -110,7 +113,7 @@ function onUserCreated(user: User): void {
           <DomainCoverage />
         </BaseCard>
         <BaseCard title="Expiring soon" subtitle="Renew or let these lapse" :padded="false">
-          <ExpiringGrantsList :grants="grantsStore.expiringSoon" />
+          <ExpiringMembershipsList :members="groupsStore.expiringSoon" />
         </BaseCard>
       </div>
     </div>

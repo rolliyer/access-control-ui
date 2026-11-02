@@ -11,9 +11,20 @@ from typing import Any
 
 from google.cloud import bigquery
 
-from ..models import Role, RolePermission, User, UserRole
+from ..models import (
+    Group,
+    GroupMember,
+    GroupRole,
+    Role,
+    RolePermission,
+    Team,
+    TeamAdmin,
+    User,
+    UserRole,
+)
 
-# Column -> BigQuery type, per table (see migrations/003_access_control.sql).
+# Column -> BigQuery type, per table (see the analytics MCP repo's
+# migrations/003_access_control.sql and this repo's sql/005_teams_and_groups.sql).
 USER_COLUMNS = {
     "user_id": "STRING",
     "email": "STRING",
@@ -32,6 +43,7 @@ ROLE_COLUMNS = {
     "role_key": "STRING",
     "role_name": "STRING",
     "description": "STRING",
+    "team_id": "STRING",
     "owner_team": "STRING",
     "approver_email": "STRING",
     "entra_group": "STRING",
@@ -56,6 +68,62 @@ GRANT_COLUMNS = {
     "granted_at": "TIMESTAMP",
     "granted_by": "STRING",
     "expires_at": "TIMESTAMP",
+    "revoked_at": "TIMESTAMP",
+    "revoked_by": "STRING",
+    "reason": "STRING",
+}
+
+TEAM_COLUMNS = {
+    "team_id": "STRING",
+    "team_key": "STRING",
+    "team_name": "STRING",
+    "description": "STRING",
+    "is_active": "BOOL",
+    "created_at": "TIMESTAMP",
+    "created_by": "STRING",
+    "updated_at": "TIMESTAMP",
+    "updated_by": "STRING",
+}
+TEAM_ADMIN_COLUMNS = {
+    "team_admin_id": "STRING",
+    "team_id": "STRING",
+    "email": "STRING",
+    "added_at": "TIMESTAMP",
+    "added_by": "STRING",
+    "removed_at": "TIMESTAMP",
+    "removed_by": "STRING",
+}
+GROUP_COLUMNS = {
+    "group_id": "STRING",
+    "group_key": "STRING",
+    "group_name": "STRING",
+    "description": "STRING",
+    "team_id": "STRING",
+    "entra_group_id": "STRING",
+    "is_active": "BOOL",
+    "created_at": "TIMESTAMP",
+    "created_by": "STRING",
+    "updated_at": "TIMESTAMP",
+    "updated_by": "STRING",
+}
+GROUP_MEMBER_COLUMNS = {
+    "group_member_id": "STRING",
+    "group_id": "STRING",
+    "user_id": "STRING",
+    "added_at": "TIMESTAMP",
+    "added_by": "STRING",
+    "approved_by": "STRING",
+    "expires_at": "TIMESTAMP",
+    "removed_at": "TIMESTAMP",
+    "removed_by": "STRING",
+    "reason": "STRING",
+}
+GROUP_ROLE_COLUMNS = {
+    "group_role_id": "STRING",
+    "group_id": "STRING",
+    "role_id": "STRING",
+    "granted_at": "TIMESTAMP",
+    "granted_by": "STRING",
     "revoked_at": "TIMESTAMP",
     "revoked_by": "STRING",
     "reason": "STRING",
@@ -116,6 +184,7 @@ class BigQueryStore:
             fields=[
                 "role_name",
                 "description",
+                "team_id",
                 "owner_team",
                 "approver_email",
                 "is_active",
@@ -161,21 +230,76 @@ class BigQueryStore:
     def list_grants(self) -> list[UserRole]:
         return [UserRole(**row) for row in self._select("user_roles", GRANT_COLUMNS)]
 
-    def insert_grant(self, grant: UserRole) -> None:
-        self._insert("user_roles", GRANT_COLUMNS, [grant.model_dump()])
-
     def revoke_grant(self, grant: UserRole) -> None:
-        # `revoked_at IS NULL` keeps a revoke from ever overwriting an earlier one.
-        self._run(
-            f"UPDATE `{self._table('user_roles')}` "
-            "SET revoked_at = @revoked_at, revoked_by = @revoked_by "
-            "WHERE user_role_id = @user_role_id AND revoked_at IS NULL",
-            {
-                "revoked_at": ("TIMESTAMP", grant.revoked_at),
-                "revoked_by": ("STRING", grant.revoked_by),
-                "user_role_id": ("STRING", grant.user_role_id),
-            },
+        self._end("user_roles", "user_role_id", grant.user_role_id, "revoked", grant)
+
+    # ── Teams ───────────────────────────────────────────────────────────
+
+    def list_teams(self) -> list[Team]:
+        return [Team(**row) for row in self._select("teams", TEAM_COLUMNS)]
+
+    def insert_team(self, team: Team) -> None:
+        self._insert("teams", TEAM_COLUMNS, [team.model_dump()])
+
+    def update_team(self, team: Team) -> None:
+        self._update(
+            "teams",
+            TEAM_COLUMNS,
+            team.model_dump(),
+            key="team_id",
+            fields=["team_name", "description", "is_active", "updated_at", "updated_by"],
         )
+
+    def list_team_admins(self) -> list[TeamAdmin]:
+        return [TeamAdmin(**row) for row in self._select("team_admins", TEAM_ADMIN_COLUMNS)]
+
+    def insert_team_admin(self, admin: TeamAdmin) -> None:
+        self._insert("team_admins", TEAM_ADMIN_COLUMNS, [admin.model_dump()])
+
+    def remove_team_admin(self, admin: TeamAdmin) -> None:
+        self._end("team_admins", "team_admin_id", admin.team_admin_id, "removed", admin)
+
+    # ── Groups ──────────────────────────────────────────────────────────
+
+    def list_groups(self) -> list[Group]:
+        return [Group(**row) for row in self._select("groups", GROUP_COLUMNS)]
+
+    def insert_group(self, group: Group) -> None:
+        self._insert("groups", GROUP_COLUMNS, [group.model_dump()])
+
+    def update_group(self, group: Group) -> None:
+        self._update(
+            "groups",
+            GROUP_COLUMNS,
+            group.model_dump(),
+            key="group_id",
+            fields=[
+                "group_name",
+                "description",
+                "entra_group_id",
+                "is_active",
+                "updated_at",
+                "updated_by",
+            ],
+        )
+
+    def list_group_members(self) -> list[GroupMember]:
+        return [GroupMember(**row) for row in self._select("group_members", GROUP_MEMBER_COLUMNS)]
+
+    def insert_group_member(self, member: GroupMember) -> None:
+        self._insert("group_members", GROUP_MEMBER_COLUMNS, [member.model_dump()])
+
+    def remove_group_member(self, member: GroupMember) -> None:
+        self._end("group_members", "group_member_id", member.group_member_id, "removed", member)
+
+    def list_group_roles(self) -> list[GroupRole]:
+        return [GroupRole(**row) for row in self._select("group_roles", GROUP_ROLE_COLUMNS)]
+
+    def insert_group_role(self, group_role: GroupRole) -> None:
+        self._insert("group_roles", GROUP_ROLE_COLUMNS, [group_role.model_dump()])
+
+    def revoke_group_role(self, group_role: GroupRole) -> None:
+        self._end("group_roles", "group_role_id", group_role.group_role_id, "revoked", group_role)
 
     # ── SQL helpers ─────────────────────────────────────────────────────
 
@@ -219,6 +343,20 @@ class BigQueryStore:
         sql = f"UPDATE `{self._table(table)}` SET {assignments} WHERE {key} = @{key}"
         params = {name: (columns[name], row[name]) for name in [*fields, key]}
         self._run(sql, params)
+
+    def _end(self, table: str, key: str, key_value: str, verb: str, row: Any) -> None:
+        """Close an append-only row: set <verb>_at / <verb>_by.
+        `<verb>_at IS NULL` keeps it from ever overwriting an earlier close."""
+        at, by = f"{verb}_at", f"{verb}_by"
+        self._run(
+            f"UPDATE `{self._table(table)}` SET {at} = @{at}, {by} = @{by} "
+            f"WHERE {key} = @{key} AND {at} IS NULL",
+            {
+                at: ("TIMESTAMP", getattr(row, at)),
+                by: ("STRING", getattr(row, by)),
+                key: ("STRING", key_value),
+            },
+        )
 
     def _run(self, sql: str, params: Params) -> list[Any]:
         job_config = bigquery.QueryJobConfig(

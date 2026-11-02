@@ -1,15 +1,9 @@
-from datetime import UTC, datetime, timedelta
-
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.store import MemoryStore
-from app.store.memory import ABHISEKH, MAYANK, SRIDHAR
-from tests.conftest import DEV_ADMIN, by_email, by_key
-
-
-def iso(days: int = 0) -> str:
-    return (datetime.now(UTC) + timedelta(days=days)).isoformat()
+from app.store.memory import ABHISEKH, MAYANK, SHIVANI, SRIDHAR
+from tests.conftest import DEV_ADMIN, by_email, by_key, iso
 
 
 def test_health(client: TestClient):
@@ -21,7 +15,10 @@ def test_lists_use_camel_case(client: TestClient):
     assert len(users) == 4
     assert {"userId", "email", "isActive", "createdAt"} <= users[0].keys()
     assert len(client.get("/api/domains").json()) == 5
-    assert client.get("/api/me").json() == {"email": DEV_ADMIN}
+    me = client.get("/api/me").json()
+    assert me["email"] == DEV_ADMIN
+    assert me["isGlobalAdmin"] is True
+    assert len(me["adminTeamIds"]) == 4
 
 
 class TestUsers:
@@ -79,57 +76,30 @@ class TestUsers:
         assert res.json() == {"message": "User not found."}
 
 
-class TestGrants:
-    def test_grant_duplicate_revoke_regrant(self, client: TestClient):
+class TestLegacyGrants:
+    def test_no_new_direct_grants(self, client: TestClient):
         user = by_email(client, ABHISEKH)
         role = by_key(client, "finance_analyst")
-        grant = {
-            "userId": user["userId"],
-            "roleId": role["roleId"],
-            "grantedAt": iso(),
-            "expiresAt": iso(180),
-            "grantedBy": "Sridhar.Iyer@RollerDigital.com",
-            "reason": "Covering finance",
-        }
+        res = client.post(
+            "/api/grants",
+            json={
+                "userId": user["userId"],
+                "roleId": role["roleId"],
+                "grantedAt": iso(),
+                "grantedBy": SRIDHAR,
+            },
+        )
+        assert res.status_code == 405
 
-        created = client.post("/api/grants", json=grant)
-        assert created.status_code == 201
-        assert created.json()["grantedBy"] == SRIDHAR
-
-        assert client.post("/api/grants", json=grant).status_code == 409
-
-        revoked = client.post(f"/api/grants/{created.json()['userRoleId']}/revoke")
+    def test_revoke_keeps_the_row(self, client: TestClient):
+        open_grant = next(g for g in client.get("/api/grants").json() if g["revokedAt"] is None)
+        revoked = client.post(f"/api/grants/{open_grant['userRoleId']}/revoke")
         assert revoked.status_code == 200
         assert revoked.json()["revokedBy"] == DEV_ADMIN
         # Append-only: the revoked row is still listed.
         ids = [g["userRoleId"] for g in client.get("/api/grants").json()]
-        assert created.json()["userRoleId"] in ids
-        # Revoking twice is refused; granting again is allowed.
-        assert client.post(f"/api/grants/{created.json()['userRoleId']}/revoke").status_code == 409
-        assert client.post("/api/grants", json=grant).status_code == 201
-
-    def test_rules(self, client: TestClient):
-        user = by_email(client, ABHISEKH)
-        role = by_key(client, "finance_analyst")
-        base = {
-            "userId": user["userId"],
-            "roleId": role["roleId"],
-            "grantedAt": iso(),
-            "expiresAt": iso(30),
-            "grantedBy": SRIDHAR,
-        }
-
-        self_approved = client.post("/api/grants", json={**base, "grantedBy": user["email"]})
-        assert self_approved.status_code == 422
-        assert "cannot be the person" in self_approved.json()["message"]
-
-        backwards = client.post("/api/grants", json={**base, "expiresAt": iso(-1)})
-        assert backwards.status_code == 422
-
-        client.patch(f"/api/roles/{role['roleId']}", json={"isActive": False})
-        retired = client.post("/api/grants", json=base)
-        assert retired.status_code == 422
-        assert "retired" in retired.json()["message"]
+        assert open_grant["userRoleId"] in ids
+        assert client.post(f"/api/grants/{open_grant['userRoleId']}/revoke").status_code == 409
 
 
 class TestRolesAndPermissions:
@@ -187,7 +157,9 @@ def test_bad_request_body_is_a_readable_message(client: TestClient):
 
 
 def test_admin_allowlist(settings):
-    settings.admin_emails = MAYANK  # the dev user (Sridhar) is not in the list
+    # Shivani is neither in ADMIN_EMAILS nor a team admin.
+    settings.admin_emails = MAYANK
+    settings.dev_user_email = SHIVANI
     client = TestClient(create_app(settings, store=MemoryStore.seeded()))
     res = client.get("/api/users")
     assert res.status_code == 403

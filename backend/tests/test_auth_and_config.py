@@ -40,7 +40,7 @@ class TestIap:
     def test_valid_token_identifies_the_admin(self, iap_client: TestClient):
         res = iap_client.get("/api/me", headers={IAP_JWT_HEADER: "good-token"})
         assert res.status_code == 200
-        assert res.json() == {"email": "mayank.agarwal@rollerdigital.com"}
+        assert res.json()["email"] == "mayank.agarwal@rollerdigital.com"
 
     def test_health_needs_no_auth(self, iap_client: TestClient):
         assert iap_client.get("/healthz").status_code == 200

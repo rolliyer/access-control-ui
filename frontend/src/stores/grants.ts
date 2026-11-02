@@ -1,47 +1,26 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useApi } from '@/api'
-import type { GrantRoleInput, UserRole } from '@/types/access-control'
-import { isExpiringSoon, isGrantActive } from '@/domain/grants'
+import type { UserRole } from '@/types/access-control'
+import { isGrantOpen } from '@/domain/grants'
 
+/**
+ * Legacy direct grants (user → role). Access now goes through groups, so
+ * these are only shown and revoked until they have been moved to groups.
+ */
 export const useGrantsStore = defineStore('grants', () => {
   const api = useApi()
 
   const grants = ref<UserRole[]>([])
 
-  const byUser = computed(() => {
-    const map = new Map<string, UserRole[]>()
-    for (const g of grants.value) {
-      const list = map.get(g.userId)
-      if (list) list.push(g)
-      else map.set(g.userId, [g])
-    }
-    return map
-  })
-
-  const activeGrants = computed(() => grants.value.filter((g) => isGrantActive(g)))
-  const expiringSoon = computed(() =>
-    grants.value
-      .filter((g) => isExpiringSoon(g))
-      .sort((a, b) => (a.expiresAt ?? '').localeCompare(b.expiresAt ?? '')),
-  )
+  const openGrants = computed(() => grants.value.filter((g) => isGrantOpen(g)))
 
   function grantsFor(userId: string): UserRole[] {
-    return byUser.value.get(userId) ?? []
-  }
-
-  function activeHolderCount(roleId: string): number {
-    return activeGrants.value.filter((g) => g.roleId === roleId).length
+    return grants.value.filter((g) => g.userId === userId)
   }
 
   async function fetchAll(): Promise<void> {
     grants.value = await api.listGrants()
-  }
-
-  async function grant(input: GrantRoleInput): Promise<UserRole> {
-    const created = await api.grantRole(input)
-    grants.value.push(created)
-    return created
   }
 
   async function revoke(userRoleId: string): Promise<UserRole> {
@@ -51,15 +30,5 @@ export const useGrantsStore = defineStore('grants', () => {
     return updated
   }
 
-  return {
-    grants,
-    byUser,
-    activeGrants,
-    expiringSoon,
-    grantsFor,
-    activeHolderCount,
-    fetchAll,
-    grant,
-    revoke,
-  }
+  return { grants, openGrants, grantsFor, fetchAll, revoke }
 })

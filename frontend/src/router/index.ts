@@ -32,6 +32,25 @@ const router = createRouter({
       meta: { title: 'User' },
     },
     {
+      path: '/teams',
+      name: RouteName.Teams,
+      component: () => import('@/views/TeamsView.vue'),
+      meta: { title: 'Teams' },
+    },
+    {
+      path: '/groups',
+      name: RouteName.Groups,
+      component: () => import('@/views/GroupsView.vue'),
+      meta: { title: 'Groups' },
+    },
+    {
+      path: '/groups/:groupId',
+      name: RouteName.GroupDetail,
+      component: () => import('@/views/GroupDetailView.vue'),
+      props: true,
+      meta: { title: 'Group' },
+    },
+    {
       path: '/roles',
       name: RouteName.Roles,
       component: () => import('@/views/RolesView.vue'),

@@ -1,12 +1,23 @@
 import type {
+  AddGroupMemberInput,
+  AddGroupRoleInput,
+  CreateGroupInput,
   CreateRoleInput,
+  CreateTeamInput,
   CreateUserInput,
   Domain,
-  GrantRoleInput,
+  Group,
+  GroupMember,
+  GroupRole,
+  Me,
   PermissionRef,
   Role,
   RolePermission,
+  Team,
+  TeamAdmin,
+  UpdateGroupInput,
   UpdateRoleInput,
+  UpdateTeamInput,
   UpdateUserInput,
   User,
   UserRole,
@@ -21,6 +32,9 @@ import type {
  * from the signed-in session, never sent by the client.
  */
 export interface AccessControlApi {
+  /** The signed-in admin and which teams they manage. */
+  getMe(): Promise<Me>
+
   /** Metric domains discovered from the semantic catalogue (read-only). */
   listDomains(): Promise<Domain[]>
 
@@ -36,10 +50,28 @@ export interface AccessControlApi {
   /** Replaces the role's permission set; returns the role's resulting rows. */
   setRolePermissions(roleId: string, permissions: PermissionRef[]): Promise<RolePermission[]>
 
+  /** Legacy direct grants: listed and revoked only, never created. */
   listGrants(): Promise<UserRole[]>
-  grantRole(input: GrantRoleInput): Promise<UserRole>
   /** Grants are append-only: revoking sets `revokedAt`, the row stays. */
   revokeGrant(userRoleId: string): Promise<UserRole>
+
+  listTeams(): Promise<Team[]>
+  createTeam(input: CreateTeamInput): Promise<Team>
+  updateTeam(teamId: string, patch: UpdateTeamInput): Promise<Team>
+  listTeamAdmins(): Promise<TeamAdmin[]>
+  addTeamAdmin(teamId: string, email: string): Promise<TeamAdmin>
+  removeTeamAdmin(teamAdminId: string): Promise<TeamAdmin>
+
+  listGroups(): Promise<Group[]>
+  createGroup(input: CreateGroupInput): Promise<Group>
+  updateGroup(groupId: string, patch: UpdateGroupInput): Promise<Group>
+  listGroupMembers(): Promise<GroupMember[]>
+  addGroupMember(groupId: string, input: AddGroupMemberInput): Promise<GroupMember>
+  /** Append-only: removing sets `removedAt`, the row stays. */
+  removeGroupMember(groupMemberId: string): Promise<GroupMember>
+  listGroupRoles(): Promise<GroupRole[]>
+  addGroupRole(groupId: string, input: AddGroupRoleInput): Promise<GroupRole>
+  revokeGroupRole(groupRoleId: string): Promise<GroupRole>
 }
 
 export class ApiError extends Error {

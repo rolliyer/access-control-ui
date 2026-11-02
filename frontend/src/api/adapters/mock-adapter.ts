@@ -2,30 +2,43 @@ import { ApiError, type AccessControlApi } from '../access-control-api'
 import { createSeedDatabase, type MockDatabase } from '../mock/seed'
 import generatedDomains from '../mock/domains.generated.json'
 import type {
+  AddGroupMemberInput,
+  AddGroupRoleInput,
+  CreateGroupInput,
   CreateRoleInput,
+  CreateTeamInput,
   CreateUserInput,
   Domain,
-  GrantRoleInput,
+  Group,
+  GroupMember,
+  GroupRole,
+  Me,
   PermissionRef,
   Role,
   RolePermission,
+  Team,
+  TeamAdmin,
+  UpdateGroupInput,
   UpdateRoleInput,
+  UpdateTeamInput,
   UpdateUserInput,
   User,
-  UserRole,
 } from '@/types/access-control'
-import { isGrantOpen } from '@/domain/grants'
+import { isMembershipOpen } from '@/domain/grants'
 import { TIERS } from '@/domain/resources'
 import {
   normalizeEmail,
   validateEmail,
   validateGrantDates,
   validateGrantor,
+  validateKey,
+  validateRequired,
   validateRoleKey,
 } from '@/domain/validation'
 
 export interface MockApiOptions {
-  /** Email recorded as created_by / updated_by / revoked_by. */
+  /** The signed-in admin. The mock treats them as a global admin.
+   * Recorded as created_by / updated_by / revoked_by. */
   actorEmail: string
   /** Where to persist between reloads. Pass null to keep data in memory only. */
   storage?: Storage | null
@@ -39,13 +52,14 @@ export interface MockApiOptions {
   seed?: (now: Date) => MockDatabase
 }
 
-// v2: sample data changed to the four real dev users; older saved data is ignored.
-const DEFAULT_STORAGE_KEY = 'access-control-ui:mock-db:v2'
+// v3: sample data gained teams and groups; older saved data is ignored.
+const DEFAULT_STORAGE_KEY = 'access-control-ui:mock-db:v3'
 
 /**
  * In-browser stand-in for the backend. Enforces the same rules the tables
- * document (unique emails and role keys, approver ≠ grantee, append-only grants)
- * so the UI behaves as it will against the real API.
+ * document (unique emails and keys, approver ≠ member, append-only memberships)
+ * so the UI behaves as it will against the real API. The signed-in person is a
+ * global admin here; team-admin limits are enforced by the real backend only.
  */
 export class MockAccessControlApi implements AccessControlApi {
   private db: MockDatabase
@@ -72,6 +86,14 @@ export class MockAccessControlApi implements AccessControlApi {
   reset(): void {
     this.db = this.seed(this.now())
     this.save()
+  }
+
+  getMe() {
+    return this.respond((): Me => ({
+      email: this.actor,
+      isGlobalAdmin: true,
+      adminTeamIds: this.db.teams.map((t) => t.teamId),
+    }))
   }
 
   // ── Domains ─────────────────────────────────────────────────────────────
@@ -143,12 +165,14 @@ export class MockAccessControlApi implements AccessControlApi {
       if (this.db.roles.some((r) => r.roleKey === input.roleKey)) {
         throw new ApiError(`A role with key ${input.roleKey} already exists.`, 409)
       }
+      const team = this.teamOrNull(input.teamId)
       const role: Role = {
         roleId: crypto.randomUUID(),
         roleKey: input.roleKey,
         roleName: input.roleName.trim(),
         description: input.description?.trim() || null,
-        ownerTeam: input.ownerTeam?.trim() || null,
+        teamId: team?.teamId ?? null,
+        ownerTeam: team?.teamName ?? null,
         approverEmail: input.approverEmail ? normalizeEmail(input.approverEmail) : null,
         entraGroup: null,
         isActive: true,
@@ -167,7 +191,11 @@ export class MockAccessControlApi implements AccessControlApi {
       const role = this.findOrThrow(this.db.roles, (r) => r.roleId === roleId, 'Role')
       if (patch.roleName !== undefined) role.roleName = patch.roleName.trim()
       if (patch.description !== undefined) role.description = patch.description?.trim() || null
-      if (patch.ownerTeam !== undefined) role.ownerTeam = patch.ownerTeam?.trim() || null
+      if (patch.teamId !== undefined) {
+        const team = this.teamOrNull(patch.teamId)
+        role.teamId = team?.teamId ?? null
+        role.ownerTeam = team?.teamName ?? null
+      }
       if (patch.approverEmail !== undefined) {
         role.approverEmail = patch.approverEmail ? normalizeEmail(patch.approverEmail) : null
       }
@@ -210,38 +238,6 @@ export class MockAccessControlApi implements AccessControlApi {
     return this.respond(() => this.db.grants)
   }
 
-  grantRole(input: GrantRoleInput) {
-    return this.respond(() => {
-      const user = this.findOrThrow(this.db.users, (u) => u.userId === input.userId, 'User')
-      const role = this.findOrThrow(this.db.roles, (r) => r.roleId === input.roleId, 'Role')
-      assertValid(validateGrantor(input.grantedBy, user.email))
-      assertValid(validateGrantDates(input.grantedAt, input.expiresAt))
-      if (!role.isActive) throw new ApiError(`Role ${role.roleKey} is retired.`, 422)
-
-      const now = this.now()
-      const duplicate = this.db.grants.some(
-        (g) => g.userId === user.userId && g.roleId === role.roleId && isGrantOpen(g, now),
-      )
-      if (duplicate) {
-        throw new ApiError(`${user.email} already holds ${role.roleName}. Revoke it first.`, 409)
-      }
-
-      const grant: UserRole = {
-        userRoleId: crypto.randomUUID(),
-        userId: user.userId,
-        roleId: role.roleId,
-        grantedAt: input.grantedAt,
-        grantedBy: normalizeEmail(input.grantedBy),
-        expiresAt: input.expiresAt,
-        revokedAt: null,
-        revokedBy: null,
-        reason: input.reason?.trim() || null,
-      }
-      this.db.grants.push(grant)
-      return grant
-    })
-  }
-
   revokeGrant(userRoleId: string) {
     return this.respond(() => {
       const grant = this.findOrThrow(this.db.grants, (g) => g.userRoleId === userRoleId, 'Grant')
@@ -249,6 +245,234 @@ export class MockAccessControlApi implements AccessControlApi {
       grant.revokedAt = this.timestamp()
       grant.revokedBy = this.actor
       return grant
+    })
+  }
+
+  // ── Teams ───────────────────────────────────────────────────────────────
+
+  listTeams() {
+    return this.respond(() => this.db.teams)
+  }
+
+  createTeam(input: CreateTeamInput) {
+    return this.respond(() => {
+      assertValid(validateKey(input.teamKey, 'Team key', 'customer_success'))
+      assertValid(validateRequired(input.teamName, 'Team name'))
+      if (this.db.teams.some((t) => t.teamKey === input.teamKey)) {
+        throw new ApiError(`A team with key ${input.teamKey} already exists.`, 409)
+      }
+      const team: Team = {
+        teamId: crypto.randomUUID(),
+        teamKey: input.teamKey,
+        teamName: input.teamName.trim(),
+        description: input.description?.trim() || null,
+        isActive: true,
+        createdAt: this.timestamp(),
+        createdBy: this.actor,
+        updatedAt: null,
+        updatedBy: null,
+      }
+      this.db.teams.push(team)
+      return team
+    })
+  }
+
+  updateTeam(teamId: string, patch: UpdateTeamInput) {
+    return this.respond(() => {
+      const team = this.findOrThrow(this.db.teams, (t) => t.teamId === teamId, 'Team')
+      if (patch.teamName !== undefined) team.teamName = patch.teamName.trim()
+      if (patch.description !== undefined) team.description = patch.description?.trim() || null
+      if (patch.isActive !== undefined) team.isActive = patch.isActive
+      this.touch(team)
+      return team
+    })
+  }
+
+  listTeamAdmins() {
+    return this.respond(() => this.db.teamAdmins)
+  }
+
+  addTeamAdmin(teamId: string, email: string) {
+    return this.respond(() => {
+      const team = this.findOrThrow(this.db.teams, (t) => t.teamId === teamId, 'Team')
+      const normalized = normalizeEmail(email)
+      assertValid(validateEmail(normalized))
+      const exists = this.db.teamAdmins.some(
+        (a) => a.teamId === teamId && a.email === normalized && !a.removedAt,
+      )
+      if (exists) throw new ApiError(`${normalized} is already an admin of ${team.teamName}.`, 409)
+      const admin: TeamAdmin = {
+        teamAdminId: crypto.randomUUID(),
+        teamId,
+        email: normalized,
+        addedAt: this.timestamp(),
+        addedBy: this.actor,
+        removedAt: null,
+        removedBy: null,
+      }
+      this.db.teamAdmins.push(admin)
+      return admin
+    })
+  }
+
+  removeTeamAdmin(teamAdminId: string) {
+    return this.respond(() => {
+      const admin = this.findOrThrow(
+        this.db.teamAdmins,
+        (a) => a.teamAdminId === teamAdminId,
+        'Team admin',
+      )
+      if (admin.removedAt) throw new ApiError('This admin is already removed.', 409)
+      admin.removedAt = this.timestamp()
+      admin.removedBy = this.actor
+      return admin
+    })
+  }
+
+  // ── Groups ──────────────────────────────────────────────────────────────
+
+  listGroups() {
+    return this.respond(() => this.db.groups)
+  }
+
+  createGroup(input: CreateGroupInput) {
+    return this.respond(() => {
+      const team = this.findOrThrow(this.db.teams, (t) => t.teamId === input.teamId, 'Team')
+      if (!team.isActive) throw new ApiError(`Team ${team.teamName} is retired.`, 422)
+      assertValid(validateKey(input.groupKey, 'Group key', 'support_analysts'))
+      assertValid(validateRequired(input.groupName, 'Group name'))
+      if (this.db.groups.some((g) => g.groupKey === input.groupKey)) {
+        throw new ApiError(`A group with key ${input.groupKey} already exists.`, 409)
+      }
+      const group: Group = {
+        groupId: crypto.randomUUID(),
+        groupKey: input.groupKey,
+        groupName: input.groupName.trim(),
+        description: input.description?.trim() || null,
+        teamId: team.teamId,
+        entraGroupId: input.entraGroupId?.trim() || null,
+        isActive: true,
+        createdAt: this.timestamp(),
+        createdBy: this.actor,
+        updatedAt: null,
+        updatedBy: null,
+      }
+      this.db.groups.push(group)
+      return group
+    })
+  }
+
+  updateGroup(groupId: string, patch: UpdateGroupInput) {
+    return this.respond(() => {
+      const group = this.findOrThrow(this.db.groups, (g) => g.groupId === groupId, 'Group')
+      if (patch.groupName !== undefined) group.groupName = patch.groupName.trim()
+      if (patch.description !== undefined) group.description = patch.description?.trim() || null
+      if (patch.entraGroupId !== undefined) group.entraGroupId = patch.entraGroupId?.trim() || null
+      if (patch.isActive !== undefined) group.isActive = patch.isActive
+      this.touch(group)
+      return group
+    })
+  }
+
+  listGroupMembers() {
+    return this.respond(() => this.db.groupMembers)
+  }
+
+  addGroupMember(groupId: string, input: AddGroupMemberInput) {
+    return this.respond(() => {
+      const group = this.findOrThrow(this.db.groups, (g) => g.groupId === groupId, 'Group')
+      if (!group.isActive) throw new ApiError(`Group ${group.groupName} is retired.`, 422)
+      const user = this.findOrThrow(this.db.users, (u) => u.userId === input.userId, 'User')
+      assertValid(validateGrantor(input.approvedBy, user.email))
+      assertValid(validateGrantDates(input.addedAt, input.expiresAt))
+
+      const now = this.now()
+      const duplicate = this.db.groupMembers.some(
+        (m) => m.groupId === groupId && m.userId === user.userId && isMembershipOpen(m, now),
+      )
+      if (duplicate) {
+        throw new ApiError(
+          `${user.email} is already in ${group.groupName}. Remove them first.`,
+          409,
+        )
+      }
+
+      const member: GroupMember = {
+        groupMemberId: crypto.randomUUID(),
+        groupId,
+        userId: user.userId,
+        addedAt: input.addedAt,
+        addedBy: this.actor,
+        approvedBy: normalizeEmail(input.approvedBy),
+        expiresAt: input.expiresAt,
+        removedAt: null,
+        removedBy: null,
+        reason: input.reason?.trim() || null,
+      }
+      this.db.groupMembers.push(member)
+      return member
+    })
+  }
+
+  removeGroupMember(groupMemberId: string) {
+    return this.respond(() => {
+      const member = this.findOrThrow(
+        this.db.groupMembers,
+        (m) => m.groupMemberId === groupMemberId,
+        'Membership',
+      )
+      if (member.removedAt) {
+        throw new ApiError('This person is already removed from the group.', 409)
+      }
+      member.removedAt = this.timestamp()
+      member.removedBy = this.actor
+      return member
+    })
+  }
+
+  listGroupRoles() {
+    return this.respond(() => this.db.groupRoles)
+  }
+
+  addGroupRole(groupId: string, input: AddGroupRoleInput) {
+    return this.respond(() => {
+      const group = this.findOrThrow(this.db.groups, (g) => g.groupId === groupId, 'Group')
+      const role = this.findOrThrow(this.db.roles, (r) => r.roleId === input.roleId, 'Role')
+      if (!role.isActive) throw new ApiError(`Role ${role.roleKey} is retired.`, 422)
+      const duplicate = this.db.groupRoles.some(
+        (gr) => gr.groupId === groupId && gr.roleId === role.roleId && !gr.revokedAt,
+      )
+      if (duplicate) {
+        throw new ApiError(`${group.groupName} already has ${role.roleName}.`, 409)
+      }
+      const groupRole: GroupRole = {
+        groupRoleId: crypto.randomUUID(),
+        groupId,
+        roleId: role.roleId,
+        grantedAt: this.timestamp(),
+        grantedBy: this.actor,
+        revokedAt: null,
+        revokedBy: null,
+        reason: input.reason?.trim() || null,
+      }
+      this.db.groupRoles.push(groupRole)
+      return groupRole
+    })
+  }
+
+  revokeGroupRole(groupRoleId: string) {
+    return this.respond(() => {
+      const groupRole = this.findOrThrow(
+        this.db.groupRoles,
+        (gr) => gr.groupRoleId === groupRoleId,
+        'Group role',
+      )
+      if (groupRole.revokedAt) {
+        throw new ApiError('This role is already removed from the group.', 409)
+      }
+      groupRole.revokedAt = this.timestamp()
+      groupRole.revokedBy = this.actor
+      return groupRole
     })
   }
 
@@ -274,6 +498,11 @@ export class MockAccessControlApi implements AccessControlApi {
     if (unknown.length) {
       throw new ApiError(`Unknown resource(s): ${unknown.join(', ')}. Sync domains first.`, 422)
     }
+  }
+
+  private teamOrNull(teamId: string | null | undefined): Team | null {
+    if (!teamId) return null
+    return this.findOrThrow(this.db.teams, (t) => t.teamId === teamId, 'Team')
   }
 
   private findOrThrow<T>(items: T[], predicate: (item: T) => boolean, label: string): T {

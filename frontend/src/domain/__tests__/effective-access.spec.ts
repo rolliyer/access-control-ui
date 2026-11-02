@@ -17,29 +17,36 @@ function accessOf(db: MockDatabase, email: string, at: Date = now) {
   return summarizeByUser(computeEffectiveAccess(db, at)).get(user.userId)
 }
 
-function grantsOf(db: MockDatabase, email: string, roleKey: string) {
+function membershipsOf(db: MockDatabase, email: string, groupKey: string) {
   const user = db.users.find((u) => u.email === email)!
-  const role = db.roles.find((r) => r.roleKey === roleKey)!
-  return db.grants.filter((g) => g.userId === user.userId && g.roleId === role.roleId)
+  const group = db.groups.find((g) => g.groupKey === groupKey)!
+  return db.groupMembers.filter((m) => m.userId === user.userId && m.groupId === group.groupId)
 }
 
 describe('computeEffectiveAccess on the sample data', () => {
   const db = createSeedDatabase(now)
 
-  it('gives Sridhar (Data Admin) every domain plus the exploratory tier', () => {
+  it('gives Sridhar (Data Admins group) every domain plus the exploratory tier', () => {
     const access = accessOf(db, SRIDHAR)
     expect(access?.domains).toHaveLength(5)
     expect(access?.tiers).toEqual(['exploratory'])
     expect(access?.via.exploratory).toEqual(['data_admin'])
+    expect(access?.groupKeys).toEqual(['data_admins'])
   })
 
-  it('ignores revoked grants: Mayank sees support only through Support Analyst', () => {
+  it('ignores revoked direct grants: Mayank sees support only through his group', () => {
     expect(accessOf(db, MAYANK)?.domains).toEqual(['support'])
     expect(accessOf(db, MAYANK)?.via.support).toEqual(['support_analyst'])
   })
 
-  it('ignores expired grants: Shivani sees sales and support, not finance', () => {
-    expect(accessOf(db, SHIVANI)?.domains.sort()).toEqual(['sales', 'support'])
+  it('ignores expired memberships, and still counts open direct grants', () => {
+    // Finance Close has expired; the old direct Customer Success grant is still open.
+    expect(accessOf(db, SHIVANI)?.domains.sort()).toEqual([
+      'customer_success',
+      'renewals',
+      'sales',
+      'support',
+    ])
   })
 
   it('gives Abhisekh sales and support', () => {
@@ -54,6 +61,25 @@ describe('computeEffectiveAccess rules', () => {
     expect(accessOf(db, MAYANK)).toBeUndefined()
   })
 
+  it('drops access when the group is retired', () => {
+    const db = createSeedDatabase(now)
+    db.groups.find((g) => g.groupKey === 'support_analysts')!.isActive = false
+    expect(accessOf(db, MAYANK)).toBeUndefined()
+  })
+
+  it('drops access when the group’s team is retired', () => {
+    const db = createSeedDatabase(now)
+    db.teams.find((t) => t.teamKey === 'support')!.isActive = false
+    expect(accessOf(db, MAYANK)).toBeUndefined()
+  })
+
+  it('drops access when the role is removed from the group', () => {
+    const db = createSeedDatabase(now)
+    const group = db.groups.find((g) => g.groupKey === 'support_analysts')!
+    db.groupRoles.find((gr) => gr.groupId === group.groupId)!.revokedAt = now.toISOString()
+    expect(accessOf(db, MAYANK)).toBeUndefined()
+  })
+
   it('drops access when the role is retired', () => {
     const db = createSeedDatabase(now)
     db.roles.find((r) => r.roleKey === 'support_analyst')!.isActive = false
@@ -61,21 +87,24 @@ describe('computeEffectiveAccess rules', () => {
     expect(accessOf(db, ABHISEKH)?.domains).toEqual(['sales'])
   })
 
-  it('gives nothing before a grant starts', () => {
+  it('gives nothing before a membership starts', () => {
     const db = createSeedDatabase(now)
-    grantsOf(db, MAYANK, 'support_analyst')[0]!.grantedAt = addDays(now, 1).toISOString()
+    membershipsOf(db, MAYANK, 'support_analysts')[0]!.addedAt = addDays(now, 1).toISOString()
     expect(accessOf(db, MAYANK)).toBeUndefined()
   })
 
-  it('gives nothing once a grant is revoked', () => {
+  it('gives nothing once a member is removed', () => {
     const db = createSeedDatabase(now)
-    grantsOf(db, MAYANK, 'support_analyst')[0]!.revokedAt = now.toISOString()
+    membershipsOf(db, MAYANK, 'support_analysts')[0]!.removedAt = now.toISOString()
     expect(accessOf(db, MAYANK)).toBeUndefined()
   })
 
-  it('gives nothing once a grant expires', () => {
+  it('gives nothing once a membership expires', () => {
     const db = createSeedDatabase(now)
-    // Shivani's sample grants last one day.
-    expect(accessOf(db, SHIVANI, addDays(now, 2))).toBeUndefined()
+    // Shivani's group memberships last one day; her old direct grant lasts 60.
+    expect(accessOf(db, SHIVANI, addDays(now, 2))?.domains.sort()).toEqual([
+      'customer_success',
+      'renewals',
+    ])
   })
 })

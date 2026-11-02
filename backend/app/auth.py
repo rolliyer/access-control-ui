@@ -1,4 +1,8 @@
-"""Who is calling, and are they allowed to administer access?
+"""Who is calling, and what may they administer?
+
+Two kinds of admin:
+  * global admins (ADMIN_EMAILS): manage everything — teams, roles, permissions.
+  * team admins (the team_admins table): manage their own team's groups.
 
 In production the service sits behind Identity-Aware Proxy (IAP). IAP adds a
 signed JWT (`x-goog-iap-jwt-assertion`) to every request; we verify its
@@ -7,6 +11,7 @@ which anything that bypasses IAP could forge.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
@@ -47,15 +52,32 @@ def resolve_email(request: Request) -> str | None:
     return email.strip().lower() if isinstance(email, str) and email.strip() else None
 
 
-def require_admin(request: Request) -> str:
-    """FastAPI dependency: the admin's email, or 401/403."""
+@dataclass(frozen=True)
+class Actor:
+    """The signed-in admin."""
+
+    email: str
+    is_global_admin: bool
+    # Teams this person administers (as a team admin).
+    team_ids: frozenset[str] = frozenset()
+
+    def can_manage_team(self, team_id: str | None) -> bool:
+        return self.is_global_admin or (team_id is not None and team_id in self.team_ids)
+
+
+def require_admin(request: Request) -> Actor:
+    """FastAPI dependency: the signed-in admin, or 401/403."""
     email = resolve_email(request)
     if email is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sign in through IAP to use this API.")
+    # An empty ADMIN_EMAILS makes everyone a global admin (local development only).
     admins = request.app.state.settings.admin_email_set
-    if admins and email not in admins:
+    if not admins or email in admins:
+        return Actor(email=email, is_global_admin=True)
+    team_ids = request.app.state.service.admin_team_ids(email)
+    if not team_ids:
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"{email} is not an access-control admin.")
-    return email
+    return Actor(email=email, is_global_admin=False, team_ids=team_ids)
 
 
-Admin = Annotated[str, Depends(require_admin)]
+Admin = Annotated[Actor, Depends(require_admin)]

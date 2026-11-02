@@ -2,15 +2,16 @@
 import { computed, ref, watch } from 'vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
-import BaseBadge from '@/components/ui/BaseBadge.vue'
 import GrantDetailsFields from '@/components/access/GrantDetailsFields.vue'
 import UserFormFields from './UserFormFields.vue'
 import { useUserForm } from '@/composables/useUserForm'
 import { useGrantForm } from '@/composables/useGrantForm'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import { useUsersStore } from '@/stores/users'
+import { useGroupsStore } from '@/stores/groups'
 import { useRolesStore } from '@/stores/roles'
-import { useGrantsStore } from '@/stores/grants'
+import { useSessionStore } from '@/stores/session'
+import { useTeamsStore } from '@/stores/teams'
 import { useNotificationsStore } from '@/stores/notifications'
 import { appConfig } from '@/config'
 import type { User } from '@/types/access-control'
@@ -19,51 +20,73 @@ const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ created: [user: User] }>()
 
 const usersStore = useUsersStore()
+const groupsStore = useGroupsStore()
 const rolesStore = useRolesStore()
-const grantsStore = useGrantsStore()
+const teamsStore = useTeamsStore()
+const session = useSessionStore()
 const notifications = useNotificationsStore()
 
 const userForm = useUserForm()
 const grantForm = useGrantForm(() => userForm.values.email, appConfig.actorEmail)
-const selectedRoleIds = ref<string[]>([])
+const selectedGroupIds = ref<string[]>([])
 
-const assigningRoles = computed(() => selectedRoleIds.value.length > 0)
+const addingToGroups = computed(() => selectedGroupIds.value.length > 0)
+
+/** Groups this admin can add people to. */
+const groupChoices = computed(() =>
+  groupsStore.activeGroups.filter((g) => session.canManageTeam(g.teamId)),
+)
+
+function roleNames(groupId: string): string {
+  return groupsStore
+    .rolesOf(groupId)
+    .map((gr) => rolesStore.byId.get(gr.roleId)?.roleName ?? '')
+    .filter(Boolean)
+    .join(', ')
+}
 
 watch(open, (isOpen) => {
   if (!isOpen) return
   userForm.reset()
   grantForm.reset()
-  selectedRoleIds.value = []
+  selectedGroupIds.value = []
 })
 
-function toggleRole(roleId: string): void {
-  selectedRoleIds.value = selectedRoleIds.value.includes(roleId)
-    ? selectedRoleIds.value.filter((id) => id !== roleId)
-    : [...selectedRoleIds.value, roleId]
+function toggleGroup(groupId: string): void {
+  selectedGroupIds.value = selectedGroupIds.value.includes(groupId)
+    ? selectedGroupIds.value.filter((id) => id !== groupId)
+    : [...selectedGroupIds.value, groupId]
 }
 
 const { run: save, pending } = useAsyncAction(async () => {
   const user = await usersStore.create(userForm.toInput())
-  const timing = assigningRoles.value ? grantForm.toTiming() : null
+  const timing = addingToGroups.value ? grantForm.toTiming() : null
 
-  // Grants are created one by one so a failure is reported per role.
+  // Added one group at a time so a failure is reported per group.
   const failed: string[] = []
-  for (const roleId of timing ? selectedRoleIds.value : []) {
+  for (const groupId of timing ? selectedGroupIds.value : []) {
     try {
-      await grantsStore.grant({ userId: user.userId, roleId, ...timing! })
+      await groupsStore.addMember(groupId, {
+        userId: user.userId,
+        addedAt: timing!.grantedAt,
+        expiresAt: timing!.expiresAt,
+        approvedBy: timing!.grantedBy,
+        reason: timing!.reason,
+      })
     } catch {
-      failed.push(rolesStore.byId.get(roleId)?.roleName ?? roleId)
+      failed.push(groupsStore.byId.get(groupId)?.groupName ?? groupId)
     }
   }
 
-  if (failed.length) notifications.error(`User added, but these roles failed: ${failed.join(', ')}`)
-  else notifications.success(`${user.email} added.`)
+  if (failed.length) {
+    notifications.error(`User added, but adding to these groups failed: ${failed.join(', ')}`)
+  } else notifications.success(`${user.email} added.`)
   return user
 })
 
 async function submit(): Promise<void> {
   const userValid = userForm.validate()
-  const grantValid = !assigningRoles.value || grantForm.validate()
+  const grantValid = !addingToGroups.value || grantForm.validate()
   if (!userValid || !grantValid) return
 
   const user = await save()
@@ -91,34 +114,32 @@ async function submit(): Promise<void> {
         :departments="usersStore.departments"
       />
 
-      <section class="add-user__roles" aria-labelledby="add-user-roles-title">
-        <h3 id="add-user-roles-title" class="add-user__section-title">
-          Assign roles <span class="text-muted">(optional)</span>
+      <section
+        v-if="groupChoices.length"
+        class="add-user__groups"
+        aria-labelledby="add-user-groups-title"
+      >
+        <h3 id="add-user-groups-title" class="add-user__section-title">
+          Add to groups <span class="text-muted">(optional)</span>
         </h3>
-        <div class="add-user__role-list">
+        <div class="add-user__group-list">
           <button
-            v-for="role in rolesStore.activeRoles"
-            :key="role.roleId"
+            v-for="group in groupChoices"
+            :key="group.groupId"
             type="button"
-            class="role-toggle"
-            :class="{ 'is-selected': selectedRoleIds.includes(role.roleId) }"
-            :aria-pressed="selectedRoleIds.includes(role.roleId)"
-            @click="toggleRole(role.roleId)"
+            class="group-toggle"
+            :class="{ 'is-selected': selectedGroupIds.includes(group.groupId) }"
+            :aria-pressed="selectedGroupIds.includes(group.groupId)"
+            @click="toggleGroup(group.groupId)"
           >
-            <strong>{{ role.roleName }}</strong>
-            <span class="role-toggle__perms">
-              <BaseBadge
-                v-for="p in rolesStore.permissionsFor(role.roleId)"
-                :key="p.rolePermissionId"
-              >
-                {{ p.resourceKey }}
-              </BaseBadge>
-            </span>
+            <strong>{{ group.groupName }}</strong>
+            <small class="text-muted">{{ teamsStore.teamName(group.teamId) }}</small>
+            <small>{{ roleNames(group.groupId) || 'No roles yet' }}</small>
           </button>
         </div>
 
         <GrantDetailsFields
-          v-if="assigningRoles"
+          v-if="addingToGroups"
           v-model:start-date="grantForm.values.startDate"
           v-model:expiry-date="grantForm.values.expiryDate"
           v-model:granted-by="grantForm.values.grantedBy"
@@ -131,7 +152,7 @@ async function submit(): Promise<void> {
     <template #footer>
       <BaseButton variant="secondary" @click="open = false">Cancel</BaseButton>
       <BaseButton type="submit" form="add-user-form" :loading="pending">
-        {{ assigningRoles ? `Add user & ${selectedRoleIds.length} role(s)` : 'Add user' }}
+        {{ addingToGroups ? `Add user to ${selectedGroupIds.length} group(s)` : 'Add user' }}
       </BaseButton>
     </template>
   </BaseModal>
@@ -144,7 +165,7 @@ async function submit(): Promise<void> {
   gap: var(--space-5);
 }
 
-.add-user__roles {
+.add-user__groups {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -156,17 +177,17 @@ async function submit(): Promise<void> {
   font-size: var(--text-md);
 }
 
-.add-user__role-list {
+.add-user__group-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--space-2);
 }
 
-.role-toggle {
+.group-toggle {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--space-2);
+  gap: var(--space-1);
   padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -178,19 +199,13 @@ async function submit(): Promise<void> {
     background var(--transition);
 }
 
-.role-toggle:hover {
+.group-toggle:hover {
   border-color: var(--color-accent);
 }
 
-.role-toggle.is-selected {
+.group-toggle.is-selected {
   border-color: var(--color-accent);
   background: var(--color-accent-subtle);
   box-shadow: inset 0 0 0 1px var(--color-accent);
-}
-
-.role-toggle__perms {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
 }
 </style>

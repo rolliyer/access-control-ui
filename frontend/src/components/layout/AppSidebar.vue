@@ -15,6 +15,16 @@ const links = [
     icon: 'M7 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm6 0a2.5 2.5 0 1 0 0-5M1 17c0-3 3-5 6-5s6 2 6 5M14 12c2 0 5 1.5 5 4.5',
   },
   {
+    to: { name: RouteName.Groups },
+    label: 'Groups',
+    icon: 'M3 4h14v4H3zM3 10h14v6H3zM6 13h3',
+  },
+  {
+    to: { name: RouteName.Teams },
+    label: 'Teams',
+    icon: 'M10 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM4 17c0-3 3-5 6-5s6 2 6 5M3 8a2 2 0 1 0 0 .1M17 8a2 2 0 1 0 0 .1',
+  },
+  {
     to: { name: RouteName.Roles },
     label: 'Roles & permissions',
     icon: 'M10 2 3 5v5c0 4 3 7 7 8 4-1 7-4 7-8V5zM7 10l2 2 4-4',

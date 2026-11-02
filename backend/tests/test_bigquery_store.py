@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.models import RolePermission, User, UserRole
+from app.models import GroupMember, RolePermission, User, UserRole
 from app.store.bigquery import BigQueryStore
 from app.store.memory import MAYANK, SRIDHAR
 
@@ -127,3 +127,24 @@ def test_revoke_never_overwrites_an_earlier_revoke():
     assert "AND revoked_at IS NULL" in sql
     assert "DELETE" not in sql
     assert params["user_role_id"].value == "g1"
+
+
+def test_remove_member_never_overwrites_an_earlier_remove():
+    store, client = make_store()
+    store.remove_group_member(
+        GroupMember(
+            group_member_id="m1",
+            group_id="g1",
+            user_id="u1",
+            added_at=NOW,
+            added_by=SRIDHAR,
+            approved_by=MAYANK,
+            removed_at=NOW,
+            removed_by=SRIDHAR,
+        )
+    )
+    sql, params = client.calls[0]
+    assert "roller_analytics_agent_access_control.group_members" in sql
+    assert "AND removed_at IS NULL" in sql
+    assert params["group_member_id"].value == "m1"
+    assert params["removed_by"].value == SRIDHAR

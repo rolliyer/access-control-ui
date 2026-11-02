@@ -36,7 +36,7 @@ describe('MockAccessControlApi', () => {
         return {
           ...db,
           users: db.users.filter((u) => u !== abhisekh),
-          grants: db.grants.filter((g) => g.userId !== abhisekh.userId),
+          groupMembers: db.groupMembers.filter((m) => m.userId !== abhisekh.userId),
         }
       },
     })
@@ -78,50 +78,79 @@ describe('MockAccessControlApi', () => {
     expect(again!.email).not.toBe('changed')
   })
 
-  describe('grants', () => {
+  describe('groups', () => {
     async function ids() {
       const users = await api.listUsers()
-      const roles = await api.listRoles()
+      const groups = await api.listGroups()
       return {
-        // Abhisekh doesn't hold Finance Analyst in the sample data.
+        // Abhisekh isn't in Finance Close in the sample data.
         user: users.find((u) => u.email === ABHISEKH)!,
-        role: roles.find((r) => r.roleKey === 'finance_analyst')!,
+        group: groups.find((g) => g.groupKey === 'finance_close')!,
       }
     }
 
-    it('grants a role, blocks duplicates, and revokes without deleting', async () => {
-      const { user, role } = await ids()
+    it('adds a member, blocks duplicates, and removes without deleting', async () => {
+      const { user, group } = await ids()
       const input = {
         userId: user.userId,
-        roleId: role.roleId,
-        grantedAt: new Date().toISOString(),
+        addedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        grantedBy: SRIDHAR,
+        approvedBy: SRIDHAR,
         reason: 'Covering finance',
       }
-      const grant = await api.grantRole(input)
-      await expect(api.grantRole(input)).rejects.toMatchObject({ status: 409 })
+      const member = await api.addGroupMember(group.groupId, input)
+      expect(member).toMatchObject({ addedBy: ACTOR, approvedBy: SRIDHAR })
+      await expect(api.addGroupMember(group.groupId, input)).rejects.toMatchObject({ status: 409 })
 
-      const revoked = await api.revokeGrant(grant.userRoleId)
-      expect(revoked.revokedBy).toBe(ACTOR)
-      expect((await api.listGrants()).some((g) => g.userRoleId === grant.userRoleId)).toBe(true)
+      const removed = await api.removeGroupMember(member.groupMemberId)
+      expect(removed.removedBy).toBe(ACTOR)
+      const all = await api.listGroupMembers()
+      expect(all.some((m) => m.groupMemberId === member.groupMemberId)).toBe(true)
 
-      // Once revoked, the role can be granted again.
-      await expect(api.grantRole(input)).resolves.toBeTruthy()
+      // Once removed, the person can be added again.
+      await expect(api.addGroupMember(group.groupId, input)).resolves.toBeTruthy()
     })
 
     it('rejects self-approval', async () => {
-      const { user, role } = await ids()
+      const { user, group } = await ids()
       await expect(
-        api.grantRole({
+        api.addGroupMember(group.groupId, {
           userId: user.userId,
-          roleId: role.roleId,
-          grantedAt: new Date().toISOString(),
+          addedAt: new Date().toISOString(),
           expiresAt: null,
-          grantedBy: user.email,
+          approvedBy: user.email,
           reason: null,
         }),
       ).rejects.toMatchObject({ status: 422 })
+    })
+
+    it('creates a group with roles, and refuses a duplicate role', async () => {
+      const team = (await api.listTeams()).find((t) => t.teamKey === 'support')!
+      const role = (await api.listRoles()).find((r) => r.roleKey === 'support_lead')!
+      const group = await api.createGroup({
+        groupKey: 'support_leads',
+        groupName: 'Support Leads',
+        teamId: team.teamId,
+        description: null,
+        entraGroupId: null,
+      })
+      await api.addGroupRole(group.groupId, { roleId: role.roleId, reason: null })
+      await expect(
+        api.addGroupRole(group.groupId, { roleId: role.roleId, reason: null }),
+      ).rejects.toMatchObject({ status: 409 })
+      await expect(
+        api.createGroup({ ...group, description: null, entraGroupId: null }),
+      ).rejects.toMatchObject({ status: 409 })
+    })
+
+    it('manages team admins, append-only', async () => {
+      const team = (await api.listTeams()).find((t) => t.teamKey === 'finance')!
+      const admin = await api.addTeamAdmin(team.teamId, ' Shivani.Semwal@RollerDigital.com ')
+      expect(admin.email).toBe('shivani.semwal@rollerdigital.com')
+      await expect(api.addTeamAdmin(team.teamId, admin.email)).rejects.toMatchObject({
+        status: 409,
+      })
+      expect((await api.removeTeamAdmin(admin.teamAdminId)).removedBy).toBe(ACTOR)
     })
   })
 

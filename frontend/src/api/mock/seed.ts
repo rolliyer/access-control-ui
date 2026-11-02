@@ -1,4 +1,14 @@
-import type { Role, RolePermission, User, UserRole } from '@/types/access-control'
+import type {
+  Group,
+  GroupMember,
+  GroupRole,
+  Role,
+  RolePermission,
+  Team,
+  TeamAdmin,
+  User,
+  UserRole,
+} from '@/types/access-control'
 import { addDays } from '@/utils/date'
 
 export interface MockDatabase {
@@ -6,6 +16,11 @@ export interface MockDatabase {
   roles: Role[]
   permissions: RolePermission[]
   grants: UserRole[]
+  teams: Team[]
+  teamAdmins: TeamAdmin[]
+  groups: Group[]
+  groupMembers: GroupMember[]
+  groupRoles: GroupRole[]
 }
 
 export const SRIDHAR = 'sridhar.iyer@rollerdigital.com'
@@ -23,28 +38,62 @@ export function createSeedDatabase(now: Date = new Date()): MockDatabase {
   const created = addDays(now, -90).toISOString()
   let seq = 0
   const id = (prefix: string) => `${prefix}-${String(++seq).padStart(4, '0')}`
+  const day = (offset: number) => addDays(now, offset).toISOString()
 
-  const roleDefs: [string, string, string, string][] = [
-    ['sales_ops', 'Sales Ops', 'Sales operations and analysts', 'RevOps'],
-    ['customer_success', 'Customer Success', 'Customer success team', 'Customer Success'],
-    ['support_lead', 'Support Lead', 'Support leadership', 'Support'],
-    ['finance_analyst', 'Finance Analyst', 'Finance team — sees bookings to reconcile', 'Finance'],
-    ['exec', 'Executive', 'Leadership — every domain', 'Executive'],
-    ['data_admin', 'Data Admin', 'Data team — every domain plus exploratory SQL', 'Data'],
-    ['sales_analyst', 'Sales Analyst', 'Can see sales metrics: pipeline, ACV, win rate', 'Sales'],
+  // key, name, description, admin
+  const teamDefs: [string, string, string, string | null][] = [
+    ['data', 'Data', 'Data platform and analytics engineering', SRIDHAR],
+    ['sales', 'Sales', 'Sales and revenue operations', ABHISEKH],
+    ['support', 'Support', 'Customer support', MAYANK],
+    ['finance', 'Finance', 'Finance and accounting', null],
+  ]
+  const teams: Team[] = teamDefs.map(([teamKey, teamName, description]) => ({
+    teamId: id('team'),
+    teamKey,
+    teamName,
+    description,
+    isActive: true,
+    createdAt: created,
+    createdBy: SRIDHAR,
+    updatedAt: null,
+    updatedBy: null,
+  }))
+  const team = (key: string) => teams.find((t) => t.teamKey === key)!
+  const teamAdmins: TeamAdmin[] = teamDefs
+    .filter(([, , , admin]) => admin)
+    .map(([key, , , admin]) => ({
+      teamAdminId: id('tadmin'),
+      teamId: team(key).teamId,
+      email: admin!,
+      addedAt: created,
+      addedBy: SRIDHAR,
+      removedAt: null,
+      removedBy: null,
+    }))
+
+  // key, name, description, owning team (null = global admins only)
+  const roleDefs: [string, string, string, string | null][] = [
+    ['sales_ops', 'Sales Ops', 'Sales operations and analysts', 'sales'],
+    ['customer_success', 'Customer Success', 'Customer success team', null],
+    ['support_lead', 'Support Lead', 'Support leadership', 'support'],
+    ['finance_analyst', 'Finance Analyst', 'Finance team — sees bookings to reconcile', 'finance'],
+    ['exec', 'Executive', 'Leadership — every domain', null],
+    ['data_admin', 'Data Admin', 'Data team — every domain plus exploratory SQL', 'data'],
+    ['sales_analyst', 'Sales Analyst', 'Can see sales metrics: pipeline, ACV, win rate', 'sales'],
     [
       'support_analyst',
       'Support Analyst',
       'Can see support metrics: ticket volume, SLAs, CSAT, resolution time',
-      'Support',
+      'support',
     ],
   ]
-  const roles: Role[] = roleDefs.map(([roleKey, roleName, description, ownerTeam]) => ({
+  const roles: Role[] = roleDefs.map(([roleKey, roleName, description, teamKey]) => ({
     roleId: id('role'),
     roleKey,
     roleName,
     description,
-    ownerTeam,
+    teamId: teamKey ? team(teamKey).teamId : null,
+    ownerTeam: teamKey ? team(teamKey).teamName : null,
     approverEmail: SRIDHAR,
     entraGroup: null,
     isActive: true,
@@ -100,39 +149,98 @@ export function createSeedDatabase(now: Date = new Date()): MockDatabase {
   }))
   const userId = (email: string) => users.find((u) => u.email === email)!.userId
 
-  const day = (offset: number) => addDays(now, offset).toISOString()
-  // email, role, granted_at, expires_at, revoked_at, approver, reason
-  const grantDefs: [string, string, string, string, string | null, string, string][] = [
+  // key, name, team, roles
+  const groupDefs: [string, string, string, string[]][] = [
+    ['data_admins', 'Data Admins', 'data', ['data_admin']],
+    ['sales_analysts', 'Sales Analysts', 'sales', ['sales_analyst']],
+    ['support_analysts', 'Support Analysts', 'support', ['support_analyst']],
+    ['finance_close', 'Finance Close', 'finance', ['finance_analyst']],
+  ]
+  const groups: Group[] = groupDefs.map(([groupKey, groupName, teamKey]) => ({
+    groupId: id('group'),
+    groupKey,
+    groupName,
+    description: null,
+    teamId: team(teamKey).teamId,
+    entraGroupId: null,
+    isActive: true,
+    createdAt: created,
+    createdBy: SRIDHAR,
+    updatedAt: null,
+    updatedBy: null,
+  }))
+  const groupId = (key: string) => groups.find((g) => g.groupKey === key)!.groupId
+  const groupRoles: GroupRole[] = groupDefs.flatMap(([key, , , roleKeys]) =>
+    roleKeys.map((roleKey) => ({
+      groupRoleId: id('grole'),
+      groupId: groupId(key),
+      roleId: roleId(roleKey),
+      grantedAt: created,
+      grantedBy: SRIDHAR,
+      revokedAt: null,
+      revokedBy: null,
+      reason: null,
+    })),
+  )
+
+  // email, group, added_at, expires_at, removed_at, approver, reason
+  const memberDefs: [string, string, string, string, string | null, string, string][] = [
     [
       SRIDHAR,
-      'data_admin',
+      'data_admins',
       day(-45),
       day(135),
       null,
       ABHISEKH,
       'Builds the access-control tooling',
     ],
-    [MAYANK, 'support_analyst', day(-10), day(170), null, SRIDHAR, 'Support metrics access'],
-    [MAYANK, 'support_lead', day(-40), day(140), day(-11), SRIDHAR, 'Replaced by Support Analyst'],
-    [SHIVANI, 'sales_analyst', day(-1), day(1), null, SRIDHAR, 'Temporary 1-day access'],
-    [SHIVANI, 'support_analyst', day(-1), day(1), null, SRIDHAR, 'Temporary 1-day access'],
-    [SHIVANI, 'finance_analyst', day(-200), day(-20), null, SRIDHAR, 'Quarter-end reconciliation'],
-    [ABHISEKH, 'sales_analyst', day(-5), day(360), null, SRIDHAR, '1-year access to sales'],
-    [ABHISEKH, 'support_analyst', day(-5), day(360), null, SRIDHAR, '1-year access to support'],
+    [MAYANK, 'support_analysts', day(-10), day(170), null, SRIDHAR, 'Support metrics access'],
+    [SHIVANI, 'sales_analysts', day(-1), day(1), null, SRIDHAR, 'Temporary 1-day access'],
+    [SHIVANI, 'support_analysts', day(-1), day(1), null, SRIDHAR, 'Temporary 1-day access'],
+    [SHIVANI, 'finance_close', day(-200), day(-20), null, SRIDHAR, 'Quarter-end reconciliation'],
+    [ABHISEKH, 'sales_analysts', day(-5), day(360), null, SRIDHAR, '1-year access to sales'],
+    [ABHISEKH, 'support_analysts', day(-5), day(360), null, SRIDHAR, '1-year access to support'],
   ]
-  const grants: UserRole[] = grantDefs.map(
-    ([email, key, grantedAt, expiresAt, revokedAt, grantedBy, reason]) => ({
-      userRoleId: id('grant'),
+  const groupMembers: GroupMember[] = memberDefs.map(
+    ([email, key, addedAt, expiresAt, removedAt, approvedBy, reason]) => ({
+      groupMemberId: id('member'),
+      groupId: groupId(key),
       userId: userId(email),
-      roleId: roleId(key),
-      grantedAt,
-      grantedBy,
+      addedAt,
+      addedBy: SRIDHAR,
+      approvedBy,
       expiresAt,
-      revokedAt,
-      revokedBy: revokedAt ? SRIDHAR : null,
+      removedAt,
+      removedBy: removedAt ? SRIDHAR : null,
       reason,
     }),
   )
 
-  return { users, roles, permissions, grants }
+  // Direct grants from before groups existed: one revoked, one still active.
+  const grants: UserRole[] = [
+    {
+      userRoleId: id('grant'),
+      userId: userId(MAYANK),
+      roleId: roleId('support_lead'),
+      grantedAt: day(-40),
+      grantedBy: SRIDHAR,
+      expiresAt: day(140),
+      revokedAt: day(-11),
+      revokedBy: SRIDHAR,
+      reason: 'Replaced by Support Analysts group',
+    },
+    {
+      userRoleId: id('grant'),
+      userId: userId(SHIVANI),
+      roleId: roleId('customer_success'),
+      grantedAt: day(-30),
+      grantedBy: SRIDHAR,
+      expiresAt: day(60),
+      revokedAt: null,
+      revokedBy: null,
+      reason: 'Granted before groups — move to a group',
+    },
+  ]
+
+  return { users, roles, permissions, grants, teams, teamAdmins, groups, groupMembers, groupRoles }
 }

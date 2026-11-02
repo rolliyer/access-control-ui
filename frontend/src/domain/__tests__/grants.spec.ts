@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { daysUntilExpiry, grantStatus, isExpiringSoon, isGrantOpen } from '../grants'
-import type { UserRole } from '@/types/access-control'
+import {
+  daysUntilExpiry,
+  grantStatus,
+  grantWindow,
+  isExpiringSoon,
+  isGrantOpen,
+  isMembershipOpen,
+} from '../grants'
+import type { GroupMember, UserRole } from '@/types/access-control'
 
 const now = new Date('2026-06-15T12:00:00Z')
 const iso = (offsetDays: number) => new Date(now.getTime() + offsetDays * 86_400_000).toISOString()
@@ -54,13 +61,38 @@ describe('isGrantOpen', () => {
 
 describe('expiry helpers', () => {
   it('counts whole days until expiry', () => {
-    expect(daysUntilExpiry(grant({ expiresAt: iso(20) }), now)).toBe(20)
-    expect(daysUntilExpiry(grant({ expiresAt: null }), now)).toBeNull()
+    expect(daysUntilExpiry(grantWindow(grant({ expiresAt: iso(20) })), now)).toBe(20)
+    expect(daysUntilExpiry(grantWindow(grant({ expiresAt: null })), now)).toBeNull()
   })
 
   it('flags active grants expiring within the window', () => {
-    expect(isExpiringSoon(grant({ expiresAt: iso(10) }), now)).toBe(true)
-    expect(isExpiringSoon(grant({ expiresAt: iso(60) }), now)).toBe(false)
-    expect(isExpiringSoon(grant({ expiresAt: iso(10), revokedAt: iso(-1) }), now)).toBe(false)
+    const soon = (overrides: Partial<UserRole>) =>
+      isExpiringSoon(grantWindow(grant(overrides)), now)
+    expect(soon({ expiresAt: iso(10) })).toBe(true)
+    expect(soon({ expiresAt: iso(60) })).toBe(false)
+    expect(soon({ expiresAt: iso(10), revokedAt: iso(-1) })).toBe(false)
+  })
+})
+
+describe('isMembershipOpen', () => {
+  const member = (overrides: Partial<GroupMember> = {}): GroupMember => ({
+    groupMemberId: 'm1',
+    groupId: 'g1',
+    userId: 'u1',
+    addedAt: iso(-10),
+    addedBy: 'sridhar.iyer@rollerdigital.com',
+    approvedBy: 'mayank.agarwal@rollerdigital.com',
+    expiresAt: iso(100),
+    removedAt: null,
+    removedBy: null,
+    reason: null,
+    ...overrides,
+  })
+
+  it('follows the same rules as grants', () => {
+    expect(isMembershipOpen(member(), now)).toBe(true)
+    expect(isMembershipOpen(member({ addedAt: iso(5) }), now)).toBe(true)
+    expect(isMembershipOpen(member({ expiresAt: iso(-1) }), now)).toBe(false)
+    expect(isMembershipOpen(member({ removedAt: iso(-1) }), now)).toBe(false)
   })
 })

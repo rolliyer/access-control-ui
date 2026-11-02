@@ -7,8 +7,9 @@ import BaseCard from '@/components/ui/BaseCard.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
+import AddMemberModal from '@/components/groups/AddMemberModal.vue'
+import MembershipsTable from '@/components/groups/MembershipsTable.vue'
 import EditUserModal from '@/components/users/EditUserModal.vue'
-import GrantRoleModal from '@/components/users/GrantRoleModal.vue'
 import UserGrantsTable from '@/components/users/UserGrantsTable.vue'
 import UserStatusBadge from '@/components/users/UserStatusBadge.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -16,10 +17,12 @@ import { RouteName } from '@/router/route-names'
 import { useAccessStore } from '@/stores/access'
 import { useCatalogStore } from '@/stores/catalog'
 import { useGrantsStore } from '@/stores/grants'
+import { useGroupsStore } from '@/stores/groups'
 import { useRolesStore } from '@/stores/roles'
+import { useSessionStore } from '@/stores/session'
 import { useUsersStore } from '@/stores/users'
-import { isGrantOpen } from '@/domain/grants'
-import type { UserRole } from '@/types/access-control'
+import { isGrantOpen, isMembershipOpen } from '@/domain/grants'
+import type { GroupMember, UserRole } from '@/types/access-control'
 import { formatDate } from '@/utils/date'
 import { fullName } from '@/utils/user'
 
@@ -28,6 +31,8 @@ const { userId } = defineProps<{ userId: string }>()
 const usersStore = useUsersStore()
 const rolesStore = useRolesStore()
 const grantsStore = useGrantsStore()
+const groupsStore = useGroupsStore()
+const session = useSessionStore()
 const access = useAccessStore()
 const catalog = useCatalogStore()
 
@@ -35,13 +40,23 @@ const user = computed(() => usersStore.byId.get(userId))
 const summary = computed(() => access.accessFor(userId))
 
 const showHistory = ref(false)
-const allGrants = computed(() =>
-  [...grantsStore.grantsFor(userId)].sort((a, b) => b.grantedAt.localeCompare(a.grantedAt)),
+const allMemberships = computed(() =>
+  [...groupsStore.membershipsOf(userId)].sort((a, b) => b.addedAt.localeCompare(a.addedAt)),
 )
-const visibleGrants = computed(() =>
-  showHistory.value ? allGrants.value : allGrants.value.filter((g) => isGrantOpen(g)),
+const visibleMemberships = computed(() =>
+  showHistory.value
+    ? allMemberships.value
+    : allMemberships.value.filter((m) => isMembershipOpen(m)),
 )
-const closedGrantCount = computed(() => allGrants.value.length - visibleGrants.value.length)
+const closedCount = computed(() => allMemberships.value.length - visibleMemberships.value.length)
+
+/** Direct grants from before groups. Shown only while some are still open. */
+const openLegacyGrants = computed(() => grantsStore.grantsFor(userId).filter((g) => isGrantOpen(g)))
+
+/** Can this admin add the person to at least one group? */
+const canAddToGroup = computed(() =>
+  groupsStore.activeGroups.some((g) => session.canManageTeam(g.teamId)),
+)
 
 function roleNames(keys: readonly string[] | undefined): string {
   return (keys ?? [])
@@ -52,7 +67,7 @@ function roleNames(keys: readonly string[] | undefined): string {
 // ── Modals & actions ──────────────────────────────────────────────────────
 
 const editOpen = ref(false)
-const grantOpen = ref(false)
+const addToGroupOpen = ref(false)
 const statusConfirmOpen = ref(false)
 const revokeTarget = ref<UserRole | null>(null)
 const revokeConfirmOpen = computed({
@@ -82,8 +97,24 @@ const { run: revoke, pending: revoking } = useAsyncAction(
 
 const revokeMessage = computed(() => {
   const role = revokeTarget.value && rolesStore.byId.get(revokeTarget.value.roleId)
-  return `${user.value?.email} will lose the ${role?.roleName ?? ''} role within 5 minutes. The grant stays in the history.`
+  return `${user.value?.email} will lose the ${role?.roleName ?? ''} role within 5 minutes (unless a group gives it). The grant stays in the history.`
 })
+
+const removeTarget = ref<GroupMember | null>(null)
+const removeConfirmOpen = computed({
+  get: () => removeTarget.value !== null,
+  set: (open) => {
+    if (!open) removeTarget.value = null
+  },
+})
+const { run: removeFromGroup, pending: removing } = useAsyncAction(
+  async () => {
+    if (!removeTarget.value) return
+    await groupsStore.removeMember(removeTarget.value.groupMemberId)
+    removeTarget.value = null
+  },
+  { successMessage: 'Removed from group.' },
+)
 </script>
 
 <template>
@@ -93,14 +124,18 @@ const revokeMessage = computed(() => {
         <RouterLink :to="{ name: RouteName.Users }" class="back">← All users</RouterLink>
       </template>
       <template #actions>
-        <BaseButton variant="secondary" @click="editOpen = true">Edit details</BaseButton>
-        <BaseButton
-          :variant="user.isActive ? 'danger' : 'secondary'"
-          @click="statusConfirmOpen = true"
-        >
-          {{ user.isActive ? 'Deactivate' : 'Reactivate' }}
+        <template v-if="session.isGlobalAdmin">
+          <BaseButton variant="secondary" @click="editOpen = true">Edit details</BaseButton>
+          <BaseButton
+            :variant="user.isActive ? 'danger' : 'secondary'"
+            @click="statusConfirmOpen = true"
+          >
+            {{ user.isActive ? 'Deactivate' : 'Reactivate' }}
+          </BaseButton>
+        </template>
+        <BaseButton v-if="canAddToGroup" :disabled="!user.isActive" @click="addToGroupOpen = true">
+          + Add to group
         </BaseButton>
-        <BaseButton :disabled="!user.isActive" @click="grantOpen = true">+ Grant role</BaseButton>
       </template>
     </PageHeader>
 
@@ -135,7 +170,7 @@ const revokeMessage = computed(() => {
 
       <BaseCard title="What they can see now" subtitle="Same rules as the effective_access view">
         <p v-if="!user.isActive" class="notice">
-          This user is inactive, so they have no access, whatever roles they hold.
+          This user is inactive, so they have no access, whatever groups they are in.
         </p>
         <ul class="access-list">
           <li
@@ -161,38 +196,54 @@ const revokeMessage = computed(() => {
     </div>
 
     <BaseCard
-      title="Roles & grants"
-      :subtitle="showHistory ? 'All grants, newest first' : 'Active and scheduled grants'"
+      title="Groups"
+      :subtitle="showHistory ? 'All memberships, newest first' : 'Current and upcoming memberships'"
       :padded="false"
     >
       <template #actions>
         <BaseButton variant="ghost" size="sm" @click="showHistory = !showHistory">
-          {{ showHistory ? 'Hide history' : `Show history (${closedGrantCount})` }}
+          {{ showHistory ? 'Hide history' : `Show history (${closedCount})` }}
         </BaseButton>
       </template>
-      <UserGrantsTable
-        v-if="visibleGrants.length"
-        :grants="visibleGrants"
-        @revoke="revokeTarget = $event"
+      <MembershipsTable
+        v-if="visibleMemberships.length"
+        :members="visibleMemberships"
+        show="group"
+        @remove="removeTarget = $event"
       />
       <EmptyState
         v-else
-        title="No current roles"
-        message="This person can't see any analytics data until they're granted a role."
+        title="Not in any group"
+        message="This person can't see any analytics data until they join a group."
       >
-        <BaseButton v-if="user.isActive" @click="grantOpen = true">+ Grant role</BaseButton>
+        <BaseButton v-if="user.isActive && canAddToGroup" @click="addToGroupOpen = true">
+          + Add to group
+        </BaseButton>
       </EmptyState>
     </BaseCard>
 
+    <BaseCard
+      v-if="openLegacyGrants.length"
+      title="Direct roles (old way)"
+      subtitle="Given straight to this person before groups existed. Add them to a group instead, then revoke these."
+      :padded="false"
+    >
+      <UserGrantsTable
+        :grants="openLegacyGrants"
+        :can-revoke="session.isGlobalAdmin"
+        @revoke="revokeTarget = $event"
+      />
+    </BaseCard>
+
     <EditUserModal v-model:open="editOpen" :user="user" />
-    <GrantRoleModal v-model:open="grantOpen" :user="user" />
+    <AddMemberModal v-model:open="addToGroupOpen" :user="user" />
     <ConfirmDialog
       v-model:open="statusConfirmOpen"
       :title="user.isActive ? 'Deactivate user?' : 'Reactivate user?'"
       :message="
         user.isActive
-          ? `${user.email} will lose ALL access within 5 minutes. Their grants are kept and come back if you reactivate them.`
-          : `${user.email} will regain access from any grants that are still valid.`
+          ? `${user.email} will lose ALL access within 5 minutes. Their group memberships are kept and come back if you reactivate them.`
+          : `${user.email} will regain access from any memberships that are still valid.`
       "
       :confirm-label="user.isActive ? 'Deactivate' : 'Reactivate'"
       :variant="user.isActive ? 'danger' : 'primary'"
@@ -207,6 +258,15 @@ const revokeMessage = computed(() => {
       variant="danger"
       :loading="revoking"
       @confirm="revoke"
+    />
+    <ConfirmDialog
+      v-model:open="removeConfirmOpen"
+      title="Remove from group?"
+      :message="`${user.email} loses this group's access within 5 minutes. The record stays in the history.`"
+      confirm-label="Remove"
+      variant="danger"
+      :loading="removing"
+      @confirm="removeFromGroup"
     />
   </div>
 

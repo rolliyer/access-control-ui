@@ -3,10 +3,12 @@ import { computed, reactive, ref, watch } from 'vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import PermissionPicker from '@/components/access/PermissionPicker.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
 import { useCatalogStore } from '@/stores/catalog'
 import { useRolesStore } from '@/stores/roles'
+import { useTeamsStore } from '@/stores/teams'
 import type { PermissionRef, Role } from '@/types/access-control'
 import {
   normalizeEmail,
@@ -22,15 +24,21 @@ const { role = null } = defineProps<{ role?: Role | null }>()
 
 const rolesStore = useRolesStore()
 const catalog = useCatalogStore()
+const teamsStore = useTeamsStore()
 const isEdit = computed(() => role !== null)
 
 const values = reactive({
   roleName: '',
   roleKey: '',
   description: '',
-  ownerTeam: '',
+  teamId: '',
   approverEmail: '',
 })
+
+const teamOptions = computed(() => [
+  { value: '', label: 'No team — only global admins can hand it out' },
+  ...teamsStore.activeTeams.map((t) => ({ value: t.teamId, label: t.teamName })),
+])
 const permissions = ref<PermissionRef[]>([])
 const keyEdited = ref(false)
 const submitted = ref(false)
@@ -40,7 +48,7 @@ watch(open, (isOpen) => {
   values.roleName = role?.roleName ?? ''
   values.roleKey = role?.roleKey ?? ''
   values.description = role?.description ?? ''
-  values.ownerTeam = role?.ownerTeam ?? ''
+  values.teamId = role?.teamId ?? ''
   values.approverEmail = role?.approverEmail ?? ''
   permissions.value = role
     ? rolesStore.permissionsFor(role.roleId).map(({ resourceType, resourceKey }) => ({
@@ -79,7 +87,7 @@ const { run: save, pending } = useAsyncAction(
     const details = {
       roleName: values.roleName.trim(),
       description: values.description.trim() || null,
-      ownerTeam: values.ownerTeam.trim() || null,
+      teamId: values.teamId || null,
       approverEmail: values.approverEmail.trim() ? normalizeEmail(values.approverEmail) : null,
     }
     if (role) {
@@ -130,7 +138,12 @@ async function submit(): Promise<void> {
           label="Description"
           placeholder="What it lets people see, in plain words"
         />
-        <BaseInput v-model="values.ownerTeam" label="Owner team" placeholder="Support" />
+        <BaseSelect
+          v-model="values.teamId"
+          label="Owner team"
+          :options="teamOptions"
+          hint="That team's admins can add this role to their groups."
+        />
         <BaseInput
           v-model="values.approverEmail"
           label="Approver email"

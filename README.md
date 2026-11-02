@@ -1,7 +1,8 @@
 # access-control-ui
 
 A web app for managing **who can see which data** in the Roller analytics agent, without writing
-SQL. You can add people, create roles, choose what each role can see, and give or remove roles.
+SQL. You can add people, put them in groups, choose what each role can see, and let each team
+manage its own groups.
 
 It manages the `roller_analytics_agent_access_control` BigQuery tables described in
 `bapps-edp-analytics-mcp/semantic/access_control/README.md`.
@@ -18,6 +19,7 @@ The repo has two parts, which run together in **one container**:
 ## Contents
 
 1. [What you can do](#what-you-can-do)
+   - [How access works: teams, groups, roles](#how-access-works-teams-groups-roles)
 2. [Run it on your computer](#run-it-on-your-computer)
 3. [Run it with Docker](#run-it-with-docker)
 4. [Deploy to Google Cloud Run](#deploy-to-google-cloud-run)
@@ -32,13 +34,18 @@ The repo has two parts, which run together in **one container**:
 
 ## What you can do
 
-- **Dashboard**: a summary of users, roles and access, a table of who can see each domain, and the
-  grants that expire in the next 30 days.
-- **Users**: search people by name, email or department. Add a new person and, if you like, give
-  them roles in the same step.
+- **Dashboard**: a summary of users, groups and access, a table of who can see each domain, and the
+  group memberships that end in the next 30 days.
+- **Users**: search people by name, email or department. Add a new person and, if you like, put
+  them in groups in the same step.
 - **A person's page**: see exactly what they can see right now and which role gives it to them.
-  Edit their details, give or remove roles, or deactivate them.
-- **Roles & permissions**: create roles and tick which domains each one can see.
+  Add them to a group or remove them from one. Global admins can also edit their details or
+  deactivate them.
+- **Groups**: each group belongs to a team and has roles. Add or remove members, and add or remove
+  the group's roles.
+- **Teams**: the teams that manage groups, and each team's admins.
+- **Roles & permissions**: create roles, choose which team owns each one, and tick which domains it
+  can see.
 - **Domains**: the groups of metrics available, which roles give access to each, and how to add
   a new one.
 
@@ -49,8 +56,42 @@ check them too, so you get instant feedback.
 - Role keys are lowercase words joined with `_`, for example `support_analyst`.
 - The person approving access can't be the person receiving it.
 - Access expires after 180 days by default.
-- Removing access marks it as revoked. Nothing is ever deleted, so history is kept.
-- People and roles are deactivated, never deleted.
+- Removing access marks it as removed. Nothing is ever deleted, so history is kept.
+- People, teams, groups and roles are deactivated (retired), never deleted.
+
+### How access works: teams, groups, roles
+
+**People get access by joining a group.** Nobody is given a role directly any more.
+
+```
+a person  →  is in a group  →  the group has roles  →  each role lists what it can see
+```
+
+- **Team**: a part of Roller, such as Sales or Support. Each team has **team admins**.
+- **Group**: a set of people who need the same access, such as *Support Analysts*. Each group
+  belongs to one team.
+- **Role**: what someone can see, such as *Support Analyst → support domain*. A role can belong to
+  a team, or to no team.
+
+**Who can do what:**
+
+| | Global admin | Team admin |
+|---|---|---|
+| Who they are | People in `ADMIN_EMAILS` | People listed as admins of a team, on the **Teams** page |
+| Add people | ✓ | ✓ |
+| Edit or deactivate a person | ✓ | – |
+| Create groups | In any team | In their own team |
+| Add or remove group members | Any group | Their team's groups |
+| Add roles to a group | Any role | Only roles their team owns |
+| Create teams, add team admins | ✓ | – |
+| Create roles, change what roles can see | ✓ | – |
+
+Everyone signed in can **see** everything. Team admins see buttons only for what they may change,
+and the backend refuses anything else.
+
+**Direct grants from before groups** (one person → one role) still count until they're moved.
+A person's page lists them under **Direct roles (old way)**. To move one: add the person to a group
+that has the role, then revoke the direct role.
 
 ---
 
@@ -255,10 +296,15 @@ docker stop access-control-ui
 The steps above use sample data. To see and manage the **real** access-control tables in
 `ent-data-warehouse-dev`, start the container with your own Google credentials instead.
 
-> **This changes real data.** Opening pages only reads. Saving anything (adding a user, granting or
-> revoking a role, editing a role) writes to the dev tables, and the analytics agent picks it up
-> within about 5 minutes. Reading the real tables has been checked; making changes through the app
-> hasn't been tested against the real tables yet, so try it on your own test grants first.
+> **This changes real data.** Opening pages only reads. Saving anything (adding a user, adding
+> someone to a group, editing a role) writes to the dev tables, and the analytics agent picks it up
+> within about 5 minutes. Making changes through the app hasn't been tested against the real tables
+> yet, so try it on test data first.
+
+> **The teams and groups tables must exist first.** This version of the app reads the tables added
+> by `sql/005_teams_and_groups.sql`. If they aren't in the dataset yet, every page fails with an
+> error such as *Not found: Table …teams* or *Unrecognized name: team_id*. To add them, see
+> [Add the teams and groups tables](#add-the-teams-and-groups-tables-once-per-environment).
 
 **What you need first:**
 - the image, built as in step 2 above
@@ -290,8 +336,33 @@ The app now reads and writes BigQuery **as your Google account**. `AUTH_MODE=dev
 changes as made by `sridhar.iyer@rollerdigital.com`. To record a different person, add
 `-e DEV_USER_EMAIL=<your email>`.
 
-**3. Open http://localhost:8088.** You'll see the real people, roles and grants from the dev
+**3. Open http://localhost:8088.** You'll see the real people, groups and roles from the dev
 tables. Stop it the same way as before.
+
+### Add the teams and groups tables (once per environment)
+
+`sql/005_teams_and_groups.sql` adds the `teams`, `team_admins`, `groups`, `group_members` and
+`group_roles` tables, adds a `team_id` column to `roles`, and updates the `effective_access` view so
+the analytics agent gives access through groups. Nothing existing is deleted, and direct grants
+keep working.
+
+**What you need first:** the Google Cloud CLI, logged in (`gcloud auth login`), with permission to
+create tables and views in the `roller_analytics_agent_access_control` dataset.
+
+**1. Run it against dev** (from the repo's top folder):
+
+```bash
+bq query --use_legacy_sql=false --project_id=ent-data-warehouse-dev < sql/005_teams_and_groups.sql
+```
+
+**2. Copy the file into the analytics MCP repo** (`bapps-edp-analytics-mcp/semantic/migrations/`),
+so both repos have the same view definition.
+
+**3. Create your first team and its admins** in the app, on the **Teams** page (you need to be a
+global admin). Then create groups and add people.
+
+For stg and prod, change the project name inside the file first. (Those environments are planned
+to be set up with Terraform.)
 
 ---
 
@@ -462,7 +533,7 @@ front of the `uv run` command locally.
 | `AUTH_MODE` | `iap` | `iap` checks Google sign-in. `dev` treats everyone as `DEV_USER_EMAIL`; for local use only, and refused on Cloud Run. |
 | `IAP_AUDIENCE` | – | Required when `AUTH_MODE=iap`: `/projects/<PROJECT_NUMBER>/locations/<REGION>/services/access-control-ui`. |
 | `DEV_USER_EMAIL` | `sridhar.iyer@rollerdigital.com` | Who you are when `AUTH_MODE=dev`. |
-| `ADMIN_EMAILS` | *(empty)* | Comma-separated admins. Empty means everyone IAP lets in is an admin. |
+| `ADMIN_EMAILS` | *(empty)* | Comma-separated **global** admins. Empty means everyone IAP lets in is a global admin (fine locally; always set it on Cloud Run). Team admins are managed in the app instead. |
 | `DOMAINS_FILE` | the synced domain list | The metric domains file (see [Adding a new data domain](#adding-a-new-data-domain)). |
 | `STATIC_DIR` | *(none locally; `/app/static` in Docker)* | The built web pages to serve. |
 | `CSP_CONNECT_SRC` | `'self'` | Which addresses the web page may call. Leave as is. |
@@ -483,13 +554,16 @@ the web pages its settings through `/config.js`.
 - **Sign-in is IAP (Google).** Every request carries a token signed by Google. The backend checks
   the signature and audience, and only then trusts the email inside. A plain email header is never
   trusted, because anyone could fake one.
-- **Admins:** anyone IAP lets in, or only the people in `ADMIN_EMAILS` if you set it.
+- **Admins:** global admins are the people in `ADMIN_EMAILS` (or everyone IAP lets in, if it's
+  empty). Team admins are listed in the `team_admins` table and can only manage their own team's
+  groups. Anyone else gets *not an access-control admin*. The backend checks this on every change;
+  hiding buttons in the web pages is only a convenience.
 - **Least privilege:** the app runs as its own service account. That account can edit only the
   access-control dataset and run queries, nothing else. The analytics agent keeps read-only access
   through `effective_access`, under a different identity.
 - **Safe SQL:** every value goes to BigQuery as a query parameter, never pasted into SQL.
 - **Audit trail:** `created_by`, `updated_by` and `revoked_by` come from the signed-in person, never
-  from what the browser sends. Grants are never deleted.
+  from what the browser sends. Memberships and grants are never deleted.
 - **Safe defaults:** without proper settings the app won't start (e.g. no IAP audience, or dev
   sign-in on Cloud Run).
 - **Browser protections:** security headers, including a Content-Security-Policy, are set on every
@@ -510,12 +584,20 @@ The browser never connects to BigQuery directly. Only the backend does.
 **The sample data** (used by `npm run dev` and by the backend with `STORE=memory`) has only four
 people. They are the ones in the analytics MCP repo's dev grant scripts:
 
-| Person | Sample roles |
-|---|---|
-| `sridhar.iyer@rollerdigital.com` | Data Admin (every domain + exploratory SQL) |
-| `mayank.agarwal@rollerdigital.com` | Support Analyst, plus an old revoked Support Lead grant |
-| `shivani.semwal@rollerdigital.com` | Sales and Support Analyst, expiring in a day, plus an expired Finance Analyst grant |
-| `abhisekh.banerjee@rollerdigital.com` | Sales and Support Analyst for a year |
+| Person | Team admin of | Sample groups |
+|---|---|---|
+| `sridhar.iyer@rollerdigital.com` | Data | Data Admins (every domain + exploratory SQL) |
+| `mayank.agarwal@rollerdigital.com` | Support | Support Analysts, plus an old revoked direct Support Lead grant |
+| `shivani.semwal@rollerdigital.com` | – | Sales Analysts and Support Analysts, ending in a day; an expired Finance Close membership; and an open direct Customer Success grant (to show the "old way") |
+| `abhisekh.banerjee@rollerdigital.com` | Sales | Sales Analysts and Support Analysts for a year |
+
+There are four teams (Data, Sales, Support, Finance). Finance has no team admin. The Executive and
+Customer Success roles belong to no team, so only global admins can add them to a group.
+
+To try the app as a **team admin** instead of a global admin, run the backend with
+`ADMIN_EMAILS=someone.else@rollerdigital.com` and `DEV_USER_EMAIL=mayank.agarwal@rollerdigital.com`.
+You'll only be able to manage Support's groups. (The web-pages-only mode always treats you as a
+global admin.)
 
 It lives in `frontend/src/api/mock/seed.ts` and `backend/app/store/memory.py`. Keep the two the
 same.
@@ -524,7 +606,7 @@ same.
 1. Open the app.
 2. Open the browser's developer tools (`Cmd + Option + I` on a Mac).
 3. Go to **Application → Local Storage**.
-4. Delete the key `access-control-ui:mock-db:v2`.
+4. Delete the key `access-control-ui:mock-db:v3`.
 5. Reload the page.
 
 ---
@@ -557,8 +639,8 @@ This updates `frontend/src/api/mock/domains.generated.json`. **Commit that file.
 - Cloud Run: rebuild and redeploy, as in [Each time you deploy](#each-time-you-deploy). The list is
   built into the image.
 
-**4. Give access:** on **Roles & permissions**, edit a role, tick the new domain, and save. Then give
-that role to people.
+**4. Give access:** on **Roles & permissions**, edit a role, tick the new domain, and save. Then add
+that role to a group (on the group's page), and add people to the group.
 
 The **Domains** page in the app shows these steps too.
 
@@ -574,7 +656,9 @@ The **Domains** page in the app shows these steps too.
 | `address already in use` when starting the backend | Port 8000 is taken. Stop whatever is using it, or use `--port 8001`. Then start the web pages with `API_PROXY_TARGET=http://localhost:8001 npm run dev:api`. |
 | The page shows errors like *Sign in through IAP to use this API* locally | Start the backend with `AUTH_MODE=dev` (see step B). |
 | `ConfigError: AUTH_MODE=iap needs IAP_AUDIENCE` from `docker run` | Add `-e AUTH_MODE=dev` for local runs. On Cloud Run, set `IAP_AUDIENCE`. |
-| *… is not an access-control admin* (403) | Your email isn't in `ADMIN_EMAILS`. Add it, or leave `ADMIN_EMAILS` empty. |
+| *… is not an access-control admin* (403) | You're not in `ADMIN_EMAILS` and not a team admin. Ask a global admin to add you as a team admin on the **Teams** page, or add your email to `ADMIN_EMAILS`. |
+| *Only global admins can do this* or *You can only manage your own team's groups* (403) | You're a team admin, and that change belongs to a global admin or another team. |
+| *Not found: Table …teams* or *Unrecognized name: team_id* with `STORE=bigquery` | The teams and groups tables haven't been added to that dataset yet. See [Add the teams and groups tables](#add-the-teams-and-groups-tables-once-per-environment). |
 | Errors mentioning *DefaultCredentialsError* or *Reauthentication is needed* with `STORE=bigquery` | Your Google credentials are missing or expired. Run `gcloud auth application-default login` again, then restart the container. |
 | Errors mentioning *Access Denied* or *403* from BigQuery | Your Google account can't read or edit the access-control dataset in that project. Ask for BigQuery Data Editor on the dataset and Job User on the project. |
 | With `STORE=bigquery`, `docker run` fails on the `-v` part, or the app can't read `/tmp/adc.json` | The credentials file doesn't exist yet. Run `gcloud auth application-default login` (step 1 of [Use the real dev tables](#use-the-real-dev-tables-instead-of-sample-data)). |
@@ -617,10 +701,10 @@ access-control-ui/
 │   ├── src/
 │   │   ├── api/                        # AccessControlApi + mock and http versions
 │   │   │   └── mock/domains.generated.json # Domain list (npm run sync:domains); also used by the backend
-│   │   ├── domain/                     # Rules in plain TypeScript (validation, grants, effective access)
-│   │   ├── stores/                     # Pinia: users, roles, grants, catalog, access, notifications
+│   │   ├── domain/                     # Rules in plain TypeScript (validation, access windows, effective access)
+│   │   ├── stores/                     # Pinia: session, users, roles, teams, groups, grants (old), catalog, access, notifications
 │   │   ├── composables/                # Reusable form and search logic
-│   │   ├── components/                 # ui/, layout/, access/, dashboard/, users/, roles/
+│   │   ├── components/                 # ui/, layout/, access/, dashboard/, users/, roles/, groups/, teams/
 │   │   ├── views/                      # One page per route
 │   │   ├── assets/styles/tokens.css    # Roller colour palette (see "Colours")
 │   │   └── config.ts                   # Settings: /config.js at runtime, else VITE_* variables
@@ -632,14 +716,15 @@ access-control-ui/
 │   ├── app/
 │   │   ├── main.py                     # App factory: routes, errors, security headers, serving the UI
 │   │   ├── api.py                      # /api routes
-│   │   ├── service.py                  # The rules: who can be granted what
+│   │   ├── service.py                  # The rules: what each change needs, and who may make it
 │   │   ├── rules.py                    # Validation helpers (match frontend/src/domain/validation.ts)
-│   │   ├── auth.py                     # IAP token check; admin check
+│   │   ├── auth.py                     # IAP token check; global or team admin
 │   │   ├── config.py                   # Settings from environment variables, with safety checks
 │   │   ├── models.py                   # Request/response shapes (camelCase JSON)
 │   │   ├── domains.py                  # Loads the domain list
 │   │   └── store/                      # memory.py (sample data) and bigquery.py (real tables)
 │   └── tests/                          # pytest
+├── sql/005_teams_and_groups.sql    # BigQuery: teams and groups tables + effective_access view
 ├── bin/deploy.sh                   # Build, push and deploy (make build-image / make deploy)
 ├── deploy/
 │   ├── env/{dev,stg,prod}.env          # Per-environment settings for the deploy script
