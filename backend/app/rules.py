@@ -71,6 +71,16 @@ def is_grant_open(grant: UserRole, now: datetime) -> bool:
     return grant.expires_at is None or grant.expires_at > now
 
 
+def name_from_email(email: str) -> tuple[str | None, str | None]:
+    """Best guess at a name: jane.doe@... -> ("Jane", "Doe"). Editable later."""
+    parts = [p for p in re.split(r"[._-]+", email.split("@")[0]) if p]
+    if not parts:
+        return None, None
+    first = parts[0].capitalize()
+    last = " ".join(p.capitalize() for p in parts[1:]) or None
+    return first, last
+
+
 def is_membership_open(member: GroupMember, now: datetime) -> bool:
     """Active or not started yet — still removable, and blocks adding the person twice."""
     if member.removed_at is not None:

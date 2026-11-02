@@ -41,8 +41,8 @@ The repo has two parts, which run together in **one container**:
 - **A person's page**: see exactly what they can see right now and which role gives it to them.
   Add them to a group or remove them from one. Global admins can also edit their details or
   deactivate them.
-- **Groups**: each group belongs to a team and has roles. Add or remove members, and add or remove
-  the group's roles.
+- **Groups**: each group belongs to a team and has roles. Add or remove members (one at a time, or
+  [many at once](#add-many-people-to-a-group)), and add or remove the group's roles.
 - **Teams**: the teams that manage groups, and each team's admins.
 - **Roles & permissions**: create roles, choose which team owns each one, and tick which domains it
   can see.
@@ -88,6 +88,24 @@ a person  →  is in a group  →  the group has roles  →  each role lists wha
 
 Everyone signed in can **see** everything. Team admins see buttons only for what they may change,
 and the backend refuses anything else.
+
+### Add many people to a group
+
+On a group's page, click **Add many**.
+
+1. **Paste emails** into the box. Separate them with commas, spaces or new lines, in any mix.
+   **Or click Upload .txt or .csv** to read them from a file. A CSV can have other columns (names,
+   a header row); only the emails are used. You can paste and upload together.
+2. **Check the preview.** It shows how many people are ready to add, already in the group, not
+   Roller emails, or not in the app yet.
+3. **People not in the app yet** are skipped, unless you tick *Add them as new people too*. Their
+   names are then guessed from the email (`jane.doe@…` → Jane Doe); fix them later on the
+   **Users** page if needed.
+4. Fill in the dates, approver and reason (the same for everyone) and click **Add**.
+
+Afterwards you see who was added and, for anyone skipped, why (for example *Already in the group*,
+or *The approver can't approve their own access*). Up to 500 people at a time. Everyone is saved in
+one go, so it's quick even against BigQuery.
 
 **Direct grants from before groups** (one person → one role) still count until they're moved.
 A person's page lists them under **Direct roles (old way)**. To move one: add the person to a group

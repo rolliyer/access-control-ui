@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, Request, status
 from .auth import Admin
 from .models import (
     AddGroupMemberInput,
+    AddGroupMembersInput,
+    AddGroupMembersResult,
     AddGroupRoleInput,
     AddTeamAdminInput,
     CreateGroupInput,
@@ -180,6 +182,13 @@ def add_group_member(
     group_id: str, body: AddGroupMemberInput, service: Service, admin: Admin
 ) -> GroupMember:
     return service.add_group_member(group_id, body, admin)
+
+
+@router.post("/groups/{group_id}/members/bulk")
+def add_group_members(
+    group_id: str, body: AddGroupMembersInput, service: Service, admin: Admin
+) -> AddGroupMembersResult:
+    return service.add_group_members(group_id, body, admin)
 
 
 @router.post("/group-members/{group_member_id}/remove")

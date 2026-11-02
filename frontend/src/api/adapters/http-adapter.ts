@@ -2,6 +2,8 @@ import type { AccessControlApi } from '../access-control-api'
 import type { HttpClient } from '../http-client'
 import type {
   AddGroupMemberInput,
+  AddGroupMembersInput,
+  AddGroupMembersResult,
   AddGroupRoleInput,
   CreateGroupInput,
   CreateRoleInput,
@@ -41,6 +43,7 @@ const id = encodeURIComponent
  *   GET    /team-admins               POST /teams/:id/admins       POST /team-admins/:id/remove
  *   GET    /groups                    POST /groups         PATCH /groups/:id
  *   GET    /group-members             POST /groups/:id/members     POST /group-members/:id/remove
+ *                                      POST /groups/:id/members/bulk
  *   GET    /group-roles               POST /groups/:id/roles       POST /group-roles/:id/revoke
  */
 export class HttpAccessControlApi implements AccessControlApi {
@@ -123,6 +126,13 @@ export class HttpAccessControlApi implements AccessControlApi {
   }
   addGroupMember(groupId: string, input: AddGroupMemberInput) {
     return this.http.request<GroupMember>('POST', `/groups/${id(groupId)}/members`, input)
+  }
+  addGroupMembers(groupId: string, input: AddGroupMembersInput) {
+    return this.http.request<AddGroupMembersResult>(
+      'POST',
+      `/groups/${id(groupId)}/members/bulk`,
+      input,
+    )
   }
   removeGroupMember(groupMemberId: string) {
     return this.http.request<GroupMember>('POST', `/group-members/${id(groupMemberId)}/remove`)

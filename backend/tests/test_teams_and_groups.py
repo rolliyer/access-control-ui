@@ -214,3 +214,67 @@ class TestGroups:
             "/api/roles", json={"roleKey": "other_role", "roleName": "X", "teamId": "nope"}
         )
         assert unknown.status_code == 404
+
+
+class TestBulkAdd:
+    def bulk(self, client: TestClient, group_key: str, emails: list[str], **extra) -> dict:
+        group = by_group_key(client, group_key)
+        body = {
+            "emails": emails,
+            "addedAt": iso(),
+            "expiresAt": iso(90),
+            "approvedBy": SRIDHAR,
+            "reason": "Team onboarding",
+            **extra,
+        }
+        return client.post(f"/api/groups/{group['groupId']}/members/bulk", json=body)
+
+    def test_adds_known_people_and_explains_skips(self, client: TestClient):
+        res = self.bulk(
+            client,
+            "finance_close",
+            [
+                " Abhisekh.Banerjee@RollerDigital.com ",
+                MAYANK,
+                MAYANK,  # duplicate in the list: counted once
+                SRIDHAR,  # the approver
+                "new.person@rollerdigital.com",  # not in the app
+                "someone@gmail.com",
+            ],
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert sorted(m["userId"] for m in body["added"]) == sorted(
+            [by_email(client, ABHISEKH)["userId"], by_email(client, MAYANK)["userId"]]
+        )
+        assert body["createdUsers"] == []
+        reasons = {s["email"]: s["reason"] for s in body["skipped"]}
+        assert reasons == {
+            SRIDHAR: "The approver can't approve their own access.",
+            "new.person@rollerdigital.com": "Not in the app yet.",
+            "someone@gmail.com": "Not a valid @rollerdigital.com email.",
+        }
+
+        again = self.bulk(client, "finance_close", [ABHISEKH]).json()
+        assert again["added"] == []
+        assert again["skipped"] == [{"email": ABHISEKH, "reason": "Already in the group."}]
+
+    def test_can_create_missing_people(self, client: TestClient):
+        res = self.bulk(
+            client, "finance_close", ["jane.doe-smith@rollerdigital.com"], createMissingUsers=True
+        )
+        body = res.json()
+        assert len(body["added"]) == 1
+        [user] = body["createdUsers"]
+        assert (user["firstName"], user["lastName"]) == ("Jane", "Doe Smith")
+        assert user["createdBy"] == DEV_ADMIN
+        assert by_email(client, "jane.doe-smith@rollerdigital.com")["isActive"] is True
+
+    def test_limits(self, client: TestClient):
+        assert self.bulk(client, "finance_close", [" ", ""]).status_code == 422
+        too_many = [f"p{i}@rollerdigital.com" for i in range(501)]
+        assert self.bulk(client, "finance_close", too_many).status_code == 422
+
+    def test_team_admin_scope(self, settings: Settings):
+        client = team_admin_client(settings, MAYANK)
+        assert self.bulk(client, "sales_analysts", [SHIVANI]).status_code == 403

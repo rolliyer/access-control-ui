@@ -227,6 +227,24 @@ export interface AddGroupMemberInput {
   reason: string | null
 }
 
+/** Add many people at once, by email. Same dates, approver and reason for all. */
+export interface AddGroupMembersInput {
+  emails: string[]
+  addedAt: string
+  expiresAt: string | null
+  approvedBy: string
+  reason: string | null
+  /** Add emails that aren't in the app yet as new people (name taken from the email). */
+  createMissingUsers: boolean
+}
+
+export interface AddGroupMembersResult {
+  added: GroupMember[]
+  createdUsers: User[]
+  /** People who couldn't be added, and why. */
+  skipped: { email: string; reason: string }[]
+}
+
 export interface AddGroupRoleInput {
   roleId: string
   reason: string | null

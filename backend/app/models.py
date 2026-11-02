@@ -239,6 +239,29 @@ class AddGroupMemberInput(ApiModel):
     reason: str | None = None
 
 
+class AddGroupMembersInput(ApiModel):
+    """Add many people at once, by email. Same dates, approver and reason for all."""
+
+    emails: list[str]
+    added_at: datetime
+    expires_at: datetime | None = None
+    approved_by: str
+    reason: str | None = None
+    # Emails not yet in `users` are added as new people (name taken from the email).
+    create_missing_users: bool = False
+
+
+class SkippedEmail(ApiModel):
+    email: str
+    reason: str
+
+
+class AddGroupMembersResult(ApiModel):
+    added: list[GroupMember]
+    created_users: list[User]
+    skipped: list[SkippedEmail]
+
+
 class AddGroupRoleInput(ApiModel):
     role_id: str
     reason: str | None = None

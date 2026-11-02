@@ -1,5 +1,7 @@
 import type {
   AddGroupMemberInput,
+  AddGroupMembersInput,
+  AddGroupMembersResult,
   AddGroupRoleInput,
   CreateGroupInput,
   CreateRoleInput,
@@ -67,6 +69,8 @@ export interface AccessControlApi {
   updateGroup(groupId: string, patch: UpdateGroupInput): Promise<Group>
   listGroupMembers(): Promise<GroupMember[]>
   addGroupMember(groupId: string, input: AddGroupMemberInput): Promise<GroupMember>
+  /** Adds many people at once; anyone who can't be added is skipped with a reason. */
+  addGroupMembers(groupId: string, input: AddGroupMembersInput): Promise<AddGroupMembersResult>
   /** Append-only: removing sets `removedAt`, the row stays. */
   removeGroupMember(groupMemberId: string): Promise<GroupMember>
   listGroupRoles(): Promise<GroupRole[]>

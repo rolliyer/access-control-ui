@@ -66,6 +66,10 @@ class MemoryStore:
     def insert_user(self, user: User) -> None:
         self._insert("users", user)
 
+    def insert_users(self, users: list[User]) -> None:
+        for user in users:
+            self._insert("users", user)
+
     def update_user(self, user: User) -> None:
         self._replace("users", user)
 
@@ -126,6 +130,10 @@ class MemoryStore:
 
     def insert_group_member(self, member: GroupMember) -> None:
         self._insert("group_members", member)
+
+    def insert_group_members(self, members: list[GroupMember]) -> None:
+        for member in members:
+            self._insert("group_members", member)
 
     def remove_group_member(self, member: GroupMember) -> None:
         self._replace("group_members", member)

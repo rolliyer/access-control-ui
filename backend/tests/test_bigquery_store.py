@@ -148,3 +148,23 @@ def test_remove_member_never_overwrites_an_earlier_remove():
     assert "AND removed_at IS NULL" in sql
     assert params["group_member_id"].value == "m1"
     assert params["removed_by"].value == SRIDHAR
+
+
+def test_bulk_members_are_one_insert():
+    store, client = make_store()
+    rows = [
+        GroupMember(
+            group_member_id=f"m{i}",
+            group_id="g1",
+            user_id=f"u{i}",
+            added_at=NOW,
+            added_by=SRIDHAR,
+            approved_by=MAYANK,
+        )
+        for i in range(3)
+    ]
+    store.insert_group_members(rows)
+    assert len(client.calls) == 1
+    sql, params = client.calls[0]
+    assert sql.count("(@group_member_id_") == 3
+    assert params["user_id_2"].value == "u2"

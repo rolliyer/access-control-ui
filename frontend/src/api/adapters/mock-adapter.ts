@@ -3,6 +3,8 @@ import { createSeedDatabase, type MockDatabase } from '../mock/seed'
 import generatedDomains from '../mock/domains.generated.json'
 import type {
   AddGroupMemberInput,
+  AddGroupMembersInput,
+  AddGroupMembersResult,
   AddGroupRoleInput,
   CreateGroupInput,
   CreateRoleInput,
@@ -25,6 +27,7 @@ import type {
   User,
 } from '@/types/access-control'
 import { isMembershipOpen } from '@/domain/grants'
+import { MAX_BULK_EMAILS } from '@/domain/email-list'
 import { TIERS } from '@/domain/resources'
 import {
   normalizeEmail,
@@ -414,6 +417,77 @@ export class MockAccessControlApi implements AccessControlApi {
     })
   }
 
+  addGroupMembers(groupId: string, input: AddGroupMembersInput) {
+    return this.respond((): AddGroupMembersResult => {
+      const group = this.findOrThrow(this.db.groups, (g) => g.groupId === groupId, 'Group')
+      if (!group.isActive) throw new ApiError(`Group ${group.groupName} is retired.`, 422)
+      const approver = normalizeEmail(input.approvedBy)
+      assertValid(validateEmail(approver))
+      assertValid(validateGrantDates(input.addedAt, input.expiresAt))
+
+      const emails = [...new Set(input.emails.map(normalizeEmail).filter(Boolean))]
+      if (!emails.length) throw new ApiError('Paste or upload at least one email.', 422)
+      if (emails.length > MAX_BULK_EMAILS) {
+        throw new ApiError(`Add at most ${MAX_BULK_EMAILS} people at a time.`, 422)
+      }
+
+      const now = this.now()
+      const inGroup = new Set(
+        this.db.groupMembers
+          .filter((m) => m.groupId === groupId && isMembershipOpen(m, now))
+          .map((m) => m.userId),
+      )
+      const result: AddGroupMembersResult = { added: [], createdUsers: [], skipped: [] }
+      for (const email of emails) {
+        let user = this.db.users.find((u) => u.email === email)
+        let reason: string | null = null
+        if (validateEmail(email)) reason = 'Not a valid @rollerdigital.com email.'
+        else if (email === approver) reason = "The approver can't approve their own access."
+        else if (!user && !input.createMissingUsers) reason = 'Not in the app yet.'
+        else if (user && !user.isActive) reason = 'This person is deactivated.'
+        else if (user && inGroup.has(user.userId)) reason = 'Already in the group.'
+        if (reason) {
+          result.skipped.push({ email, reason })
+          continue
+        }
+
+        if (!user) {
+          const [firstName, lastName] = nameFromEmail(email)
+          user = {
+            userId: crypto.randomUUID(),
+            email,
+            firstName,
+            lastName,
+            department: null,
+            entraObjectId: null,
+            isActive: true,
+            createdAt: this.timestamp(),
+            createdBy: this.actor,
+            updatedAt: null,
+            updatedBy: null,
+          }
+          this.db.users.push(user)
+          result.createdUsers.push(user)
+        }
+        const member: GroupMember = {
+          groupMemberId: crypto.randomUUID(),
+          groupId,
+          userId: user.userId,
+          addedAt: input.addedAt,
+          addedBy: this.actor,
+          approvedBy: approver,
+          expiresAt: input.expiresAt,
+          removedAt: null,
+          removedBy: null,
+          reason: input.reason?.trim() || null,
+        }
+        this.db.groupMembers.push(member)
+        result.added.push(member)
+      }
+      return result
+    })
+  }
+
   removeGroupMember(groupMemberId: string) {
     return this.respond(() => {
       const member = this.findOrThrow(
@@ -536,6 +610,17 @@ export class MockAccessControlApi implements AccessControlApi {
       // Storage unavailable (private mode, quota): keep working in memory.
     }
   }
+}
+
+/** Best guess at a name: jane.doe@… → Jane, Doe (matches the backend). */
+function nameFromEmail(email: string): [string | null, string | null] {
+  const parts = email
+    .split('@')[0]!
+    .split(/[._-]+/)
+    .filter(Boolean)
+  const cap = (p: string) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()
+  if (!parts.length) return [null, null]
+  return [cap(parts[0]!), parts.slice(1).map(cap).join(' ') || null]
 }
 
 function assertValid(error: string | null): void {

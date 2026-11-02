@@ -143,6 +143,33 @@ describe('MockAccessControlApi', () => {
       ).rejects.toMatchObject({ status: 409 })
     })
 
+    it('bulk-adds people, creating missing ones only when asked', async () => {
+      const { group } = await ids()
+      const input = {
+        emails: [ABHISEKH, MAYANK, SRIDHAR, 'new.person@rollerdigital.com', 'x@gmail.com'],
+        addedAt: new Date().toISOString(),
+        expiresAt: null,
+        approvedBy: SRIDHAR,
+        reason: 'Onboarding',
+        createMissingUsers: false,
+      }
+      const first = await api.addGroupMembers(group.groupId, input)
+      expect(first.added).toHaveLength(2)
+      expect(first.skipped.map((s) => s.reason)).toEqual([
+        "The approver can't approve their own access.",
+        'Not in the app yet.',
+        'Not a valid @rollerdigital.com email.',
+      ])
+
+      const second = await api.addGroupMembers(group.groupId, {
+        ...input,
+        createMissingUsers: true,
+      })
+      expect(second.added).toHaveLength(1)
+      expect(second.createdUsers[0]).toMatchObject({ firstName: 'New', lastName: 'Person' })
+      expect(second.skipped.filter((s) => s.reason === 'Already in the group.')).toHaveLength(2)
+    })
+
     it('manages team admins, append-only', async () => {
       const team = (await api.listTeams()).find((t) => t.teamKey === 'finance')!
       const admin = await api.addTeamAdmin(team.teamId, ' Shivani.Semwal@RollerDigital.com ')

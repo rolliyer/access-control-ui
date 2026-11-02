@@ -10,6 +10,8 @@ from .auth import Actor
 from .domains import DomainCatalog
 from .models import (
     AddGroupMemberInput,
+    AddGroupMembersInput,
+    AddGroupMembersResult,
     AddGroupRoleInput,
     AddTeamAdminInput,
     CreateGroupInput,
@@ -24,6 +26,7 @@ from .models import (
     PermissionRef,
     Role,
     RolePermission,
+    SkippedEmail,
     Team,
     TeamAdmin,
     UpdateGroupInput,
@@ -67,6 +70,10 @@ def _check(error: str | None) -> None:
 
 def _new_id() -> str:
     return str(uuid.uuid4())
+
+
+# BigQuery allows 10,000 query parameters; a member row uses 10.
+MAX_BULK_EMAILS = 500
 
 
 def _require_global(actor: Actor) -> None:
@@ -438,6 +445,83 @@ class AccessControlService:
         )
         self._store.insert_group_member(member)
         return member
+
+    def add_group_members(
+        self, group_id: str, data: AddGroupMembersInput, actor: Actor
+    ) -> AddGroupMembersResult:
+        """Add many people at once. People who can't be added are skipped with a
+        reason, rather than failing the whole list."""
+        group = self._group_for(group_id, actor)
+        if not group.is_active:
+            raise ValidationError(f"Group {group.group_name} is retired.")
+        approver = rules.normalize_email(data.approved_by)
+        _check(rules.email_error(approver))
+        _check(rules.grant_dates_error(data.added_at, data.expires_at))
+
+        emails = list(dict.fromkeys(rules.normalize_email(e) for e in data.emails if e.strip()))
+        if not emails:
+            raise ValidationError("Paste or upload at least one email.")
+        if len(emails) > MAX_BULK_EMAILS:
+            raise ValidationError(f"Add at most {MAX_BULK_EMAILS} people at a time.")
+
+        now = self._clock()
+        users = {u.email: u for u in self._store.list_users()}
+        in_group = {
+            m.user_id
+            for m in self._store.list_group_members()
+            if m.group_id == group.group_id and rules.is_membership_open(m, now)
+        }
+
+        created: list[User] = []
+        members: list[GroupMember] = []
+        skipped: list[SkippedEmail] = []
+        for email in emails:
+            reason = None
+            user = users.get(email)
+            if rules.email_error(email):
+                reason = "Not a valid @rollerdigital.com email."
+            elif email == approver:
+                reason = "The approver can't approve their own access."
+            elif user is None and not data.create_missing_users:
+                reason = "Not in the app yet."
+            elif user is not None and not user.is_active:
+                reason = "This person is deactivated."
+            elif user is not None and user.user_id in in_group:
+                reason = "Already in the group."
+            if reason:
+                skipped.append(SkippedEmail(email=email, reason=reason))
+                continue
+
+            if user is None:
+                first, last = rules.name_from_email(email)
+                user = User(
+                    user_id=_new_id(),
+                    email=email,
+                    first_name=first,
+                    last_name=last,
+                    is_active=True,
+                    created_at=now,
+                    created_by=actor.email,
+                )
+                created.append(user)
+            members.append(
+                GroupMember(
+                    group_member_id=_new_id(),
+                    group_id=group.group_id,
+                    user_id=user.user_id,
+                    added_at=data.added_at,
+                    added_by=actor.email,
+                    approved_by=approver,
+                    expires_at=data.expires_at,
+                    reason=rules.clean(data.reason),
+                )
+            )
+
+        if created:
+            self._store.insert_users(created)
+        if members:
+            self._store.insert_group_members(members)
+        return AddGroupMembersResult(added=members, created_users=created, skipped=skipped)
 
     def remove_group_member(self, group_member_id: str, actor: Actor) -> GroupMember:
         member = self._find(

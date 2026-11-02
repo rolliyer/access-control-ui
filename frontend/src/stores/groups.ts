@@ -1,8 +1,11 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useApi } from '@/api'
+import { useUsersStore } from './users'
 import type {
   AddGroupMemberInput,
+  AddGroupMembersInput,
+  AddGroupMembersResult,
   CreateGroupInput,
   Group,
   GroupMember,
@@ -92,6 +95,16 @@ export const useGroupsStore = defineStore('groups', () => {
     return member
   }
 
+  async function addMembers(
+    groupId: string,
+    input: AddGroupMembersInput,
+  ): Promise<AddGroupMembersResult> {
+    const result = await api.addGroupMembers(groupId, input)
+    useUsersStore().users.push(...result.createdUsers)
+    members.value.push(...result.added)
+    return result
+  }
+
   async function removeMember(groupMemberId: string): Promise<GroupMember> {
     const updated = await api.removeGroupMember(groupMemberId)
     replace(members.value, (m) => m.groupMemberId === groupMemberId, updated)
@@ -128,6 +141,7 @@ export const useGroupsStore = defineStore('groups', () => {
     create,
     update,
     addMember,
+    addMembers,
     removeMember,
     addRole,
     revokeRole,

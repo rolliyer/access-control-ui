@@ -148,7 +148,10 @@ class BigQueryStore:
         return [User(**row) for row in self._select("users", USER_COLUMNS)]
 
     def insert_user(self, user: User) -> None:
-        self._insert("users", USER_COLUMNS, [user.model_dump()])
+        self.insert_users([user])
+
+    def insert_users(self, users: list[User]) -> None:
+        self._insert("users", USER_COLUMNS, [u.model_dump() for u in users])
 
     def update_user(self, user: User) -> None:
         self._update(
@@ -287,7 +290,11 @@ class BigQueryStore:
         return [GroupMember(**row) for row in self._select("group_members", GROUP_MEMBER_COLUMNS)]
 
     def insert_group_member(self, member: GroupMember) -> None:
-        self._insert("group_members", GROUP_MEMBER_COLUMNS, [member.model_dump()])
+        self.insert_group_members([member])
+
+    def insert_group_members(self, members: list[GroupMember]) -> None:
+        """One INSERT for all rows, so a bulk add is a single BigQuery job."""
+        self._insert("group_members", GROUP_MEMBER_COLUMNS, [m.model_dump() for m in members])
 
     def remove_group_member(self, member: GroupMember) -> None:
         self._end("group_members", "group_member_id", member.group_member_id, "removed", member)

@@ -9,6 +9,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ResourceChips from '@/components/access/ResourceChips.vue'
 import AddMemberModal from '@/components/groups/AddMemberModal.vue'
+import BulkAddMembersModal from '@/components/groups/BulkAddMembersModal.vue'
 import GroupFormModal from '@/components/groups/GroupFormModal.vue'
 import MembershipsTable from '@/components/groups/MembershipsTable.vue'
 import { useAsyncAction } from '@/composables/useAsyncAction'
@@ -94,6 +95,7 @@ const visibleMembers = computed(() =>
 const closedCount = computed(() => allMembers.value.length - visibleMembers.value.length)
 
 const addMemberOpen = ref(false)
+const bulkAddOpen = ref(false)
 const removeTarget = ref<GroupMember | null>(null)
 const removeOpen = computed({
   get: () => removeTarget.value !== null,
@@ -134,6 +136,9 @@ const { run: toggleActive, pending: toggling } = useAsyncAction(
         <BaseButton variant="secondary" @click="editOpen = true">Edit details</BaseButton>
         <BaseButton :variant="group.isActive ? 'danger' : 'secondary'" @click="statusOpen = true">
           {{ group.isActive ? 'Retire' : 'Reactivate' }}
+        </BaseButton>
+        <BaseButton variant="secondary" :disabled="!group.isActive" @click="bulkAddOpen = true">
+          Add many
         </BaseButton>
         <BaseButton :disabled="!group.isActive" @click="addMemberOpen = true">
           + Add person
@@ -243,14 +248,16 @@ const { run: toggleActive, pending: toggling } = useAsyncAction(
         @remove="removeTarget = $event"
       />
       <EmptyState v-else title="No members" message="Add people to give them this group's roles.">
-        <BaseButton v-if="canManage && group.isActive" @click="addMemberOpen = true">
-          + Add person
-        </BaseButton>
+        <template v-if="canManage && group.isActive">
+          <BaseButton variant="secondary" @click="bulkAddOpen = true">Add many</BaseButton>
+          <BaseButton @click="addMemberOpen = true">+ Add person</BaseButton>
+        </template>
       </EmptyState>
     </BaseCard>
 
     <GroupFormModal v-model:open="editOpen" :group="group" />
     <AddMemberModal v-model:open="addMemberOpen" :group="group" />
+    <BulkAddMembersModal v-model:open="bulkAddOpen" :group="group" />
     <ConfirmDialog
       v-model:open="statusOpen"
       :title="group.isActive ? 'Retire group?' : 'Reactivate group?'"
